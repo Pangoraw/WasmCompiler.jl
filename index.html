@@ -1,0 +1,12 @@
+<html>
+    <body>
+        <script type="module">
+            const bytecode = fetch("./bootstrap.wasm")
+            const {module, instance} = await WebAssembly.instantiateStreaming(bytecode)
+            console.log(instance)
+            // console.log(instance.exports.add(1,2))
+            console.log(instance.exports.pow(2, 5))
+            // let ref = instance.exports.makeRef(1, 2)
+        </script>
+    </body>
+</html>

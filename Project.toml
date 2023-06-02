@@ -1,0 +1,4 @@
+name = "WasmCompiler"
+uuid = "d6c8c267-1a52-47cb-afc2-bc072b58c422"
+authors = ["Paul <paul@plutojl.org>"]
+version = "0.1.0"
