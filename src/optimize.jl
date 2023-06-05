@@ -1,22 +1,33 @@
-function make_tees!(func)
+make_tees!(func) = (_make_tees!(func.inst); func)
 
-    i = firstindex(func.inst)
-    while i < lastindex(func.inst)
-        inst = func.inst[i]
+function _make_tees!(instlist)
+
+    i = firstindex(instlist)
+    while i < lastindex(instlist)
+        inst = instlist[i]
         i += 1
+
+        if inst isa If
+            _make_tees!(inst.trueinst)
+            _make_tees!(inst.falseinst)
+            continue
+        elseif inst isa Union{Block,Loop}
+            _make_tees!(inst.inst)
+            continue
+        end
 
         inst isa local_set || continue
 
-        nextinst = func.inst[i]
+        nextinst = instlist[i]
         nextinst isa local_get || continue
 
         inst.n == nextinst.n || continue
 
-        deleteat!(func.inst, i)
-        func.inst[i - 1] = local_tee(inst.n)
+        deleteat!(instlist, i)
+        instlist[i - 1] = local_tee(inst.n)
     end
 
-    func
+    instlist
 end
 
 function remove_unused!(func)
@@ -28,7 +39,7 @@ function remove_unused!(func)
         uses[inst.n + 1] += 1
     end
 
-    unused = setdiff(findall(==(0), uses), 1:nargs)
+    unused = setdiff(findall(iszero, uses), 1:nargs)
     deleteat!(func.locals, unused)
 
     map!(func) do inst

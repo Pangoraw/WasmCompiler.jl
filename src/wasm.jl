@@ -209,12 +209,39 @@ mutable struct WModule
     exports::Vector{Export}
 end
 
-function Base.map!(f, cont::Union{Func,Block,If,Loop})
-    map!(f, cont.inst, cont.inst)
+function Base.map!(f, cont::Union{Func,Block,Loop})
+    for i in eachindex(cont.inst)
+        inst = cont.inst[i]
+        cont.inst[i] = if inst isa Union{Block,Loop,If}
+            map!(f, inst)
+        else
+            f(inst)
+        end
+    end
     cont
 end
-Base.map(f, cont::Union{Func,Block,If,Loop}) = (map(f, cont.inst); cont) 
-Base.foreach(f, cont::Union{Func,Block,If,Loop}) = foreach(f, cont.inst)
+function Base.map!(f, if_::If)
+    map!(f, if_.trueinst, if_.trueinst)
+    map!(f, if_.falseinst, if_.falseinst)
+    if_
+end
+
+function Base.foreach(f, if_::If)
+    for inst in if_.trueinst
+        if inst isa Union{Block,Loop,If}
+            foreach(f, inst)
+        else
+            f(inst)
+        end
+    end
+    for inst in if_.falseinst
+        if inst isa Union{Block,Loop,If}
+            foreach(f, inst)
+        else
+            f(inst)
+        end
+    end
+end
 
 function _printwasm(io::IO, mod::WModule)
     println(io, "(module")
@@ -359,33 +386,6 @@ function _printwasm(io::IO, b::Block)
     print(io, "  "^indent, "end")
 end
 
-printw(mod::WModule) = _printwasm(stdout, mod)
-
-ft = FuncType([i32, i32], [i32])
-f = Func(
-    "add",
-    ft,
-    ValType[],
-    [
-        local_get(0),
-        local_get(1),
-        If(
-            FuncType([], [i32]),
-            [i32_const(32)],
-            [i32_const(0)],
-        ),
-        i32_add(),
-    ])
-
-mod = WModule(
-    [], [f],
-    [], [], [], [], [],
-    nothing,
-    [], [FuncExport("add", 1)],
-)
-
-printw(mod)
-
 struct Relooper
     # We already have emitted the code for each block content
     exprs::Vector{Vector{Inst}}
@@ -484,7 +484,7 @@ function reloop!(relooper, bidx=1)
                 ]
             )
         )
-    
+
         for b in toplace
             reloop!(relooper, b)
         end
@@ -652,20 +652,19 @@ function emit_codes(ir, nargs)
             tgt = ir.cfg.blocks[tgt]
             for tgt_sidx in tgt.stmts
                 tgt_inst = ir.stmts[tgt_sidx][:inst]
-                tgt_inst isa PhiNode || continue
-                
+                tgt_inst isa Core.PhiNode || continue
+
                 validx = findfirst(==(bidx), tgt_inst.edges)
                 isnothing(validx) && continue
                 push!(exprs[bidx], emit_val(tgt_inst.values[validx]))
                 philoc = ssa_to_local[tgt_sidx]
                 if philoc == -1
-                    push!(locals, irtype(Core.SSAValue(tgt_sidx))
-                    philoc = ssa_to_local[tgt_sidx] = length(locals)
+                    push!(locals, irtype(Core.SSAValue(tgt_sidx)))
+                    philoc = ssa_to_local[tgt_sidx] = length(locals) - 1
                 end
                 push!(exprs[bidx], local_set(philoc))
             end
         end
-                           
     end
 
     relooper = Relooper(
@@ -681,7 +680,7 @@ function emit_codes(ir, nargs)
     first(exprs), locals
 end
 
-function emit_func(f, types)
+function emit_func(f, types; optimize=false)
     ir, rt = Base.code_ircode(f, types) |> only
 
     nargs = length(types.parameters)
@@ -701,7 +700,11 @@ function emit_func(f, types)
 
     # _printwasm(stdout, f)
 
-    merge_blocks!(f)
+    if optimize
+        f |> make_tees! |> remove_unused! |> merge_blocks!
+    else
+        f
+    end
 end
 
 function towasm(io::IO, mod; enable_gc=false, enable_reference_types=false)
