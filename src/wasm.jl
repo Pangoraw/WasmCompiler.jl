@@ -62,6 +62,7 @@ end
 struct local_get <: Inst
     n::Index
 end
+"local.tee sets but leaves the value on the stack"
 struct local_tee <: Inst
     n::Index
 end
@@ -208,6 +209,13 @@ mutable struct WModule
     exports::Vector{Export}
 end
 
+function Base.map!(f, cont::Union{Func,Block,If,Loop})
+    map!(f, cont.inst, cont.inst)
+    cont
+end
+Base.map(f, cont::Union{Func,Block,If,Loop}) = (map(f, cont.inst); cont) 
+Base.foreach(f, cont::Union{Func,Block,If,Loop}) = foreach(f, cont.inst)
+
 function _printwasm(io::IO, mod::WModule)
     println(io, "(module")
     indent = 2
@@ -303,8 +311,8 @@ function _printwasm(io::IO, f::Func)
         print(io, '$', f.name, " ")
     end
     _printwasm(io, f.fntype)
-    for loc in f.locals
-        println(io, "  "^indent, "(local ", loc, ")")
+    for loc in Iterators.drop(f.locals, length(f.fntype.params))
+        println(io, "  "^(indent+2), "(local ", loc, ")")
     end
     ctx = IOContext(io, :indent => indent + 2)
     _printwasm(ctx, f.inst)
@@ -404,7 +412,7 @@ function reloop!(relooper, bidx=1)
     toplace = findall(==(bidx), idoms)
     toplace = sort(collect(toplace), by=b -> relooper.order[b])
 
-    @info "Placing $bidx" toplace
+    # @info "Placing $bidx" toplace
 
     if length(toplace) == 0
         if length(succs) == 0
@@ -506,7 +514,8 @@ function emit_codes(ir, nargs)
 
     function emit_val(val)
         if val isa Core.Argument
-            local_get(val.n - 1)
+            # One indexing + Skip first arg
+            local_get(val.n - 2)
         elseif val isa Core.SSAValue
             loc = ssa_to_local[val.id]
             if loc == -1
@@ -611,7 +620,6 @@ function emit_codes(ir, nargs)
                     loc = ssa_to_local[sidx] = length(locals) - 1
                 end
 
-                @show loc
                 push!(exprs[bidx], local_set(loc))
             elseif inst isa Core.ReturnNode
                 push!(exprs[bidx], emit_val(inst.val))
@@ -628,7 +636,7 @@ function emit_codes(ir, nargs)
     )
     reloop!(relooper)
 
-    _printwasm(stdout, exprs[1])
+    # _printwasm(stdout, exprs[1])
 
     first(exprs), locals
 end
@@ -646,11 +654,12 @@ function emit_func(f, types)
 
     f = Func(
         nameof(f) |> string,
-        functype, locals,
+        functype,
+        locals,
         expr,
     )
 
-    _printwasm(stdout, f)
+    # _printwasm(stdout, f)
 
     f
 end
