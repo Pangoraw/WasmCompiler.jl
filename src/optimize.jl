@@ -41,3 +41,25 @@ function remove_unused!(func)
 
     func
 end
+
+function merge_blocks!(func)
+    i = firstindex(func.inst)
+
+    while i <= length(func.inst)
+        inst = func.inst[i]
+
+        if inst isa Block && inst.fntype == voidtype
+            # NOTE: this is wrong if block has br insts
+            deleteat!(func.inst, i)
+            for newinst in inst.inst
+                insert!(func.inst, i, newinst)
+                i += 1
+            end
+        end
+
+        i += 1
+    end
+
+    func
+end
+

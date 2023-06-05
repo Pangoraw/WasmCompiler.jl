@@ -296,6 +296,9 @@ _printwasm(io::IO, ::i32_le_u) = print(io, "  "^get(io, :indent, 2), "i32.le_u")
 _printwasm(io::IO, ::i64_le_s) = print(io, "  "^get(io, :indent, 2), "i64.le_s")
 _printwasm(io::IO, ::i64_le_u) = print(io, "  "^get(io, :indent, 2), "i64.le_u")
 
+_printwasm(io::IO, ::i64_extend_i32_s) = print(io, "  "^get(io, :indent, 2), "i64.extend_i32_s")
+_printwasm(io::IO, ::i64_extend_i32_u) = print(io, "  "^get(io, :indent, 2), "i64.extend_i32_u")
+
 function _printwasm(io::IO, inst::Inst)
     name = string(nameof(typeof(inst)))
     print(io, "  "^get(io, :indent, 2), replace(name, "_" => "."))
@@ -535,7 +538,7 @@ function emit_codes(ir, nargs)
         elseif isnothing(val)
             nop()
         else
-            error("invalid value $val")
+            error("invalid value $val @ $(typeof(val))")
         end
     end
 
@@ -551,6 +554,20 @@ function emit_codes(ir, nargs)
                 if f isa GlobalRef && isconst(f)
                     f = getfield(f.mod, f.name)
                 end
+                if f === Base.sext_int
+                    typ = inst.args[2]
+                    if typ isa GlobalRef && isconst(typ)
+                        typ = getfield(typ.mod, typ.name)
+                    end
+                    arg = inst.args[3]
+                    push!(exprs[bidx], emit_val(arg))
+                    if typ === Int64 && irtype(arg) == i32
+                        push!(exprs[bidx], i64_extend_i32_s())
+                        continue
+                    else
+                        throw("unsupported sext_int $(inst)")
+                    end
+                end
                 for arg in inst.args[begin+1:end]
                     push!(exprs[bidx], emit_val(arg))
                 end
@@ -563,9 +580,9 @@ function emit_codes(ir, nargs)
                         error("invalid slt_int")
                     end
                 elseif f === Base.sle_int
-                    if all(arg -> irtype(arg) == i64, inst.args[begin+1:end])
+                    if all(arg -> irtype(arg) == i32, inst.args[begin+1:end])
                         push!(exprs[bidx], i32_le_s())
-                    elseif all(arg -> irtype(arg) == i32, inst.args[begin+1:end])
+                    elseif all(arg -> irtype(arg) == i64, inst.args[begin+1:end])
                         push!(exprs[bidx], i64_le_s())
                     else
                         error("invalid sle_int")
@@ -621,10 +638,16 @@ function emit_codes(ir, nargs)
                 end
 
                 push!(exprs[bidx], local_set(loc))
+            elseif inst isa Core.GotoIfNot 
+                push!(exprs[bidx], emit_val(inst.cond))
             elseif inst isa Core.ReturnNode
                 push!(exprs[bidx], emit_val(inst.val))
-                push!(exprs[bidx], return_())
+                if bidx != length(ir.cfg.blocks)
+                    push!(exprs[bidx], return_())
+                end
             end
+
+            # TODO: Emit phi nodes
         end
     end
 
@@ -661,7 +684,7 @@ function emit_func(f, types)
 
     # _printwasm(stdout, f)
 
-    f
+    merge_blocks!(f)
 end
 
 function towasm(io::IO, mod; enable_gc=false, enable_reference_types=false)
