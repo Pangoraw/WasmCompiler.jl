@@ -654,3 +654,14 @@ function emit_func(f, types)
 
     f
 end
+
+function towasm(io::IO, mod; enable_gc=false, enable_reference_types=false)
+    args = String[]
+    enable_gc && push!(args, "--enable-gc")
+    asargs = copy(args)
+    enable_reference_types && push!(asargs, "--enable-reference-types")
+    inputio = IOBuffer()
+    _printwasm(inputio, mod)
+    run(pipeline(inputio, `wat-desugar -f $(args...)`, `wasm-as -g -v web $(asargs...)`, io))
+end
+towasm(f::String, mod; kwargs...) = open(io -> towasm(io, mod; kwargs...), f; write=true)
