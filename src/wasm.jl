@@ -646,9 +646,26 @@ function emit_codes(ir, nargs)
                     push!(exprs[bidx], return_())
                 end
             end
-
-            # TODO: Emit phi nodes
         end
+
+        for tgt in b.succs
+            tgt = ir.cfg.blocks[tgt]
+            for tgt_sidx in tgt.stmts
+                tgt_inst = ir.stmts[tgt_sidx][:inst]
+                tgt_inst isa PhiNode || continue
+                
+                validx = findfirst(==(bidx), tgt_inst.edges)
+                isnothing(validx) && continue
+                push!(exprs[bidx], emit_val(tgt_inst.values[validx]))
+                philoc = ssa_to_local[tgt_sidx]
+                if philoc == -1
+                    push!(locals, irtype(Core.SSAValue(tgt_sidx))
+                    philoc = ssa_to_local[tgt_sidx] = length(locals)
+                end
+                push!(exprs[bidx], local_set(philoc))
+            end
+        end
+                           
     end
 
     relooper = Relooper(
