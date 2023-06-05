@@ -226,6 +226,15 @@ function Base.map!(f, if_::If)
     if_
 end
 
+function Base.foreach(f, cont::Union{Func,Block,Loop})
+    for inst in cont.inst
+        if inst isa Union{Block,Loop,If}
+            foreach(f, inst)
+        else
+            f(inst)
+        end
+    end
+end
 function Base.foreach(f, if_::If)
     for inst in if_.trueinst
         if inst isa Union{Block,Loop,If}

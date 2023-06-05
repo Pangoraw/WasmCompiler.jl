@@ -40,7 +40,7 @@ end
         return x
     end
 
-    f = WC.emit_func(func, Tuple{Int32,Int32})
+    f = WC.emit_func(func, Tuple{Int32,Int32}; optimize=true)
     mod = WC.WModule(
         [], [f], [], [],
         [], [], [], nothing,
@@ -48,41 +48,7 @@ end
     )
 
     wat = sprint(WC._printwasm, mod)
-    println(wat)
-
     wasm = Wasmtime.wat2wasm(wat)
-
-    #=
-    wasm = Wasmtime.wat"""
-    (module
-    (func $func (param i32) (param i32) (result i32)
-            (local i32)
-            (local i32)
-            (local i32)
-            (local i32)
-        i32.const 2
-        local.get 0
-        i64.le_s
-
-        if
-            local.get 1
-            local.get 0
-            i32.add
-            local.set 5
-        else
-            local.get 1
-            i32.const 2
-            i32.add
-            local.set 5
-        end
-
-        local.get 5
-    )
-
-
-    (export "func" (func $func)))
-    """
-    =#
 
     engine = Wasmtime.WasmEngine()
     store = Wasmtime.WasmStore(engine)
