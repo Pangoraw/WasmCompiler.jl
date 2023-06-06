@@ -312,11 +312,24 @@ function _printwasm(io::IO, mod::WModule)
 end
 
 function _printwasm(io::IO, fntype::FuncType)
-    for param in fntype.params
-        print(io, "(param ", param, ") ")
-    end
-    for result in fntype.results
-        print(io, "(result ", result, ") ")
+    compact = get(io, :compact, true)
+    if compact
+        print(io, "(param")
+        for param in fntype.params
+            print(io, " ", param)
+        end
+        print(io, ") (result")
+        for result in fntype.results
+            print(io, " ", result)
+        end
+        print(io, ")")
+    else
+        for param in fntype.params
+            print(io, "(param ", param, ") ")
+        end
+        for result in fntype.results
+            print(io, "(result ", result, ") ")
+        end
     end
     println(io)
 end
@@ -350,8 +363,17 @@ function _printwasm(io::IO, f::Func)
         print(io, '$', f.name, " ")
     end
     _printwasm(io, f.fntype)
-    for loc in Iterators.drop(f.locals, length(f.fntype.params))
-        println(io, "  "^(indent+2), "(local ", loc, ")")
+    compact = get(io, :compact, true)
+    if compact
+        print(io, "(local ")
+        for loc in Iterators.drop(f.locals, length(f.fntype.params))
+            print(io, " ", loc)
+        end
+        println(io, ")")
+    else
+        for loc in Iterators.drop(f.locals, length(f.fntype.params))
+            println(io, "  "^(indent+2), "(local ", loc, ")")
+        end
     end
     ctx = IOContext(io, :indent => indent + 2)
     _printwasm(ctx, f.inst)
