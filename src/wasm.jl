@@ -429,10 +429,28 @@ function emit_codes(ir, nargs)
                     push!(exprs[bidx], emit_val(arg))
                     if typ === Int64 && irtype(arg) == i32
                         push!(exprs[bidx], i64_extend_i32_s())
+                        loc = ssa_to_local[sidx]
+                        if loc == -1
+                            push!(locals, valtype(stmt[:type]))
+                            loc = ssa_to_local[sidx] = length(locals) - 1
+                        end
+                        push!(exprs[bidx], local_set(loc))
                         continue
                     else
                         throw("unsupported sext_int $(inst)")
                     end
+                elseif f === Core.ifelse
+                    push!(exprs[bidx], emit_val(inst.args[3]))
+                    push!(exprs[bidx], emit_val(inst.args[4]))
+                    push!(exprs[bidx], emit_val(inst.args[2]))
+                    push!(exprs[bidx], select())
+                    loc = ssa_to_local[sidx]
+                    if loc == -1
+                        push!(locals, valtype(stmt[:type]))
+                        loc = ssa_to_local[sidx] = length(locals) - 1
+                    end
+                    push!(exprs[bidx], local_set(loc))
+                    continue
                 end
                 for arg in inst.args[begin+1:end]
                     push!(exprs[bidx], emit_val(arg))
@@ -508,9 +526,7 @@ function emit_codes(ir, nargs)
                 push!(exprs[bidx], emit_val(inst.cond))
             elseif inst isa Core.ReturnNode
                 push!(exprs[bidx], emit_val(inst.val))
-                if bidx != length(ir.cfg.blocks)
-                    push!(exprs[bidx], return_())
-                end
+                push!(exprs[bidx], return_())
             end
         end
 

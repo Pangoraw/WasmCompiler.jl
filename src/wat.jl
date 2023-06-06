@@ -74,15 +74,21 @@ end
 function _printwasm(io::IO, fntype::FuncType)
     compact = get(io, :compact, true)
     if compact
-        print(io, "("); _printkw(io, "param")
-        for param in fntype.params
-            print(io, " ", param)
+        if length(fntype.params) > 0
+          print(io, "("); _printkw(io, "param")
+          for param in fntype.params
+              print(io, " ", param)
+          end
+          print(io, ")")
         end
-        print(io, ") ("); _printkw(io, "result")
-        for result in fntype.results
-            print(io, " ", result)
+
+        if length(fntype.results) > 0
+          print(io, " ("); _printkw(io, "result")
+          for result in fntype.results
+              print(io, " ", result)
+          end
+          print(io, ")")
         end
-        print(io, ")")
     else
         for param in fntype.params
             print(io, "(")
@@ -123,7 +129,9 @@ function _printwasm(io::IO, inst::Inst)
     name = string(nameof(typeof(inst)))
     _printinst(io, replace(name, "_" => "."))
     for f in fieldnames(typeof(inst))
-        print(io, " ", getfield(inst, f))
+        fieldval = getfield(inst, f)
+        isnothing(fieldval) && continue
+        print(io, " ", fieldval)
     end
 end
 
@@ -138,18 +146,19 @@ function _printwasm(io::IO, f::Func)
     _printwasm(io, f.fntype)
     compact = get(io, :compact, true)
     if compact
-        print(io, INDENT_S^(indent+2), "(")
-        _printkw(io, "local")
-        print(io, " ")
-        for loc in Iterators.drop(f.locals, length(f.fntype.params))
-            print(io, " ", loc)
+        if length(f.locals) > length(f.fntype.params)
+            print(io, INDENT_S^(indent+2), "(")
+            _printkw(io, "local")
+            for loc in Iterators.drop(f.locals, length(f.fntype.params))
+                print(io, " ", loc)
+            end
+            println(io, ")")
         end
-        println(io, ")")
     else
         for loc in Iterators.drop(f.locals, length(f.fntype.params))
             print(io, INDENT_S^(indent+2), "(")
             _printkw(io, "local")
-            println(io, ", loc, ")")
+            println(io, " ", loc, ")")
         end
     end
     ctx = IOContext(io, :indent => indent + 2)
