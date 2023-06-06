@@ -1,14 +1,17 @@
 const INDENT_S = "  "
 
 function _printwasm(io::IO, mod::WModule)
-    println(io, "(")
+    print(io, "(")
     _printkw(io, "module")
+    println(io)
     indent = 2
 
     for type in mod.types
-        error("cannot export types $type")
-        # print(io, INDENT_S^indent, "(type)")
-        # println(io)
+        if type isa StructType
+            _printwasm(io, type)
+        else
+            error("don't know how to export $type")
+        end
     end
 
     ctx = IOContext(io, :indent => indent)
@@ -71,6 +74,38 @@ function _printwasm(io::IO, mod::WModule)
     print(io, ")")
 end
 
+function _printwasm(io::IO, structtype::StructType)
+    indent = get(io, :indent, 0)
+    if structtype.rec
+        print(io, INDENT_S^indent, "(")
+        _printkw(io, "rec")
+        println(io)
+        indent += 2
+    end
+    print(io, INDENT_S^indent, "(")
+    _printkw(io, "type")
+
+    !isnothing(structtype.name) && print(io, " \$", structtype.name)
+    println(io)
+    indent += 2
+    print(io, INDENT_S^indent, "("); _printkw(io, "struct")
+    indent += 2
+
+    for field in structtype.fields
+        println(io)
+        print(io, INDENT_S^indent, "("); _printkw(io, "field ")
+        !isnothing(field.name) && print(io, "\$", field.name, " ")
+        field.mut && (print(io, "("); _printkw(io, "mut"); print(io, " "))
+        print(io, field.type)
+        field.mut && print(io, ")")
+        print(io, ")")
+    end
+
+    print(io, "))")
+    structtype.rec && print(io, ")")
+    println(io)
+end
+
 function _printwasm(io::IO, fntype::FuncType)
     compact = get(io, :compact, true)
     if compact
@@ -124,6 +159,15 @@ _printwasm(io::IO, ::i64_le_u) = _printinst(io, "i64.le_u")
 
 _printwasm(io::IO, ::i64_extend_i32_s) = _printinst(io, "i64.extend_i32_s")
 _printwasm(io::IO, ::i64_extend_i32_u) = _printinst(io, "i64.extend_i32_u")
+
+_printwasm(io::IO, ::f32_convert_i32_s) = _printinst(io, "f32.convert_i32_s")
+_printwasm(io::IO, ::f32_convert_i32_u) = _printinst(io, "f32.convert_i32_u")
+_printwasm(io::IO, ::f32_convert_i64_s) = _printinst(io, "f32.convert_i64_s")
+_printwasm(io::IO, ::f32_convert_i64_u) = _printinst(io, "f32.convert_i64_u")
+_printwasm(io::IO, ::f64_convert_i32_s) = _printinst(io, "f64.convert_i32_s")
+_printwasm(io::IO, ::f64_convert_i32_u) = _printinst(io, "f64.convert_i32_u")
+_printwasm(io::IO, ::f64_convert_i64_s) = _printinst(io, "f64.convert_i64_s")
+_printwasm(io::IO, ::f64_convert_i64_u) = _printinst(io, "f64.convert_i64_u")
 
 function _printwasm(io::IO, inst::Inst)
     name = string(nameof(typeof(inst)))
