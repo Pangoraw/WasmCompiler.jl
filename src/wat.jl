@@ -169,6 +169,11 @@ _printwasm(io::IO, ::f64_convert_i32_u) = _printinst(io, "f64.convert_i32_u")
 _printwasm(io::IO, ::f64_convert_i64_s) = _printinst(io, "f64.convert_i64_s")
 _printwasm(io::IO, ::f64_convert_i64_u) = _printinst(io, "f64.convert_i64_u")
 
+_printwasm(io::IO, ::i32_reinterpret_f32) = _printinst(io, "i32.reinterpret_f32")
+_printwasm(io::IO, ::i64_reinterpret_f64) = _printinst(io, "i64.reinterpret_f64")
+_printwasm(io::IO, ::f32_reinterpret_i32) = _printinst(io, "f32.reinterpret_i32")
+_printwasm(io::IO, ::f64_reinterpret_i64) = _printinst(io, "f64.reinterpret_i64")
+
 function _printwasm(io::IO, inst::Inst)
     name = string(nameof(typeof(inst)))
     _printinst(io, replace(name, "_" => "."))

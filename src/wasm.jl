@@ -651,6 +651,26 @@ function emit_codes(ir, nargs; debug=false)
                     else
                         throw("unsupported sext_int $(inst)")
                     end
+                elseif f === Base.bitcast
+                    typ = inst.args[2]
+                    if typ isa GlobalRef && isconst(typ)
+                        typ = getfield(typ.mod, typ.name)
+                    end
+                    arg = inst.args[3]
+                    argtype = irtype(arg)
+                    if typ == Int32 && argtype == f32
+                        push!(exprs[bidx], i32_reinterpret_f32())
+                    elseif typ == Int64 && argtype == f64
+                        push!(exprs[bidx], i64_reinterpret_f64())
+                    elseif typ == Float32 && argtype == i32
+                        push!(exprs[bidx], f32_reinterpret_i32())
+                    elseif typ == Float64 && argtype == i64
+                        push!(exprs[bidx], f64_reinterpret_i64())
+                    else
+                        error("invalid bitcast $inst (argtype = $argtype)")
+                    end
+                    push!(exprs[bidx], local_set(getlocal!(SSAValue(sidx))))
+                    continue
                 elseif f === Base.sitofp
                     typ = inst.args[2]
                     if typ isa GlobalRef && isconst(typ)
