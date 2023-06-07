@@ -130,6 +130,8 @@ struct i64_reinterpret_f64 <: Inst end
 struct f32_reinterpret_i32 <: Inst end
 struct f64_reinterpret_i64 <: Inst end
 
+struct f64_promote_f32 <: Inst end
+
 struct f32_convert_i32_s <: Inst end
 struct f32_convert_i32_u <: Inst end
 struct f32_convert_i64_s <: Inst end
@@ -346,6 +348,13 @@ const INTRINSICS = Dict(
     Base.rint_llvm => Intrinsic(false, f32_nearest(), f64_nearest()),
 )
 
+function resolve_arg(inst, n)
+    @assert Meta.isexpr(inst, :call)
+    arg = inst.args[n]
+    arg isa GlobalRef && isconst(arg) ?
+        getfield(arg.mod, arg.name) : error("invalid call $inst")
+end
+
 function emit_codes(ir, nargs; debug=false)
     exprs = Vector{Inst}[]
 
@@ -427,30 +436,40 @@ function emit_codes(ir, nargs; debug=false)
             stmt = ir.stmts[sidx]
             inst = stmt[:inst]
 
+            ssa = SSAValue(sidx)
+
             if Meta.isexpr(inst, :call)
                 f = inst.args[1]
                 if f isa GlobalRef && isconst(f)
                     f = getfield(f.mod, f.name)
                 end
                 if f === Base.sext_int
-                    typ = inst.args[2]
-                    if typ isa GlobalRef && isconst(typ)
-                        typ = getfield(typ.mod, typ.name)
-                    end
+                    typ = resolve_arg(inst, 2)
                     arg = inst.args[3]
                     push!(exprs[bidx], emit_val(arg))
                     if typ == Int64 && irtype(arg) == i32
                         push!(exprs[bidx], i64_extend_i32_s())
-                        push!(exprs[bidx], local_set(getlocal!(SSAValue(sidx))))
+                        push!(exprs[bidx], local_set(getlocal!(ssa)))
                         continue
                     else
                         throw("unsupported sext_int $(inst)")
                     end
-                elseif f === Base.bitcast
-                    typ = inst.args[2]
-                    if typ isa GlobalRef && isconst(typ)
-                        typ = getfield(typ.mod, typ.name)
+                elseif f === Base.fpext
+                    typ = resolve_arg(inst, 2)
+                    arg = inst.args[3]
+                    push!(exprs[bidx], emit_val(arg))
+                    argtype = irtype(arg)
+                    if typ == Float64 && argtype == f32
+                        push!(exprs[bidx], f64_promote_f32())
+                    elseif typ == Float64 && argtype == f64
+                        # pass
+                    else
+                        error("invalid fpext $inst")
                     end
+                    push!(exprs[bidx], local_set(getlocal!(ssa)))
+                    continue
+                elseif f === Base.bitcast
+                    typ = resolve_arg(inst, 2)
                     arg = inst.args[3]
                     argtype = irtype(arg)
                     if typ == Int32 && argtype == f32
@@ -464,13 +483,24 @@ function emit_codes(ir, nargs; debug=false)
                     else
                         error("invalid bitcast $inst (argtype = $argtype)")
                     end
-                    push!(exprs[bidx], local_set(getlocal!(SSAValue(sidx))))
+                    push!(exprs[bidx], local_set(getlocal!(ssa)))
+                    continue
+                elseif f === Base.trunc_int
+                    typ = resolve_arg(inst, 2)
+                    arg = inst.args[3]
+                    push!(exprs[bidx], emit_val(arg))
+                    argtype = irtype(arg)
+                    if typ == Int32 && argtype == i64
+                        push!(exprs[bidx], i32_wrap_i64())
+                    elseif typ == Int32 && argtype == i32
+                        # pass
+                    else
+                        error("invalid trunc_int $inst")
+                    end
+                    push!(exprs[bidx], local_set(getlocal!(ssa)))
                     continue
                 elseif f === Base.sitofp
-                    typ = inst.args[2]
-                    if typ isa GlobalRef && isconst(typ)
-                        typ = getfield(typ.mod, typ.name)
-                    end
+                    typ = resolve_arg(inst, 2)
                     arg = inst.args[3]
                     push!(exprs[bidx], emit_val(arg))
                     argtype = jltype(arg)
@@ -499,14 +529,14 @@ function emit_codes(ir, nargs; debug=false)
                             error("unsupported conversion $inst")
                         end
                     end
-                    push!(exprs[bidx], local_set(getlocal!(SSAValue(sidx))))
+                    push!(exprs[bidx], local_set(getlocal!(ssa)))
                     continue
                 elseif f === Core.ifelse
                     push!(exprs[bidx], emit_val(inst.args[3]))
                     push!(exprs[bidx], emit_val(inst.args[4]))
                     push!(exprs[bidx], emit_val(inst.args[2]))
                     push!(exprs[bidx], select())
-                    push!(exprs[bidx], local_set(getlocal!(SSAValue(sidx))))
+                    push!(exprs[bidx], local_set(getlocal!(ssa)))
                     continue
                 elseif f === Base.neg_int
                     typ = jltype(inst.args)
@@ -519,7 +549,7 @@ function emit_codes(ir, nargs; debug=false)
                     else
                         error("invalid neg_int $inst")
                     end
-                    push!(exprs[bidx], local_set(getlocal!(SSAValue(sidx))))
+                    push!(exprs[bidx], local_set(getlocal!(ssa)))
                     continue
                 end
                 for arg in inst.args[begin+1:end]
@@ -572,10 +602,10 @@ function emit_codes(ir, nargs; debug=false)
                     error("Cannot handle call to $f")
                 end
 
-                loc = getlocal!(SSAValue(sidx))
+                loc = getlocal!(ssa)
                 push!(exprs[bidx], local_set(loc))
             elseif inst isa PiNode
-                loc = getlocal!(SSAValue(sidx))
+                loc = getlocal!(ssa)
                 push!(exprs[bidx], emit_val(inst.val))
                 push!(exprs[bidx], local_set(loc))
             elseif inst isa GotoIfNot 
@@ -594,18 +624,28 @@ function emit_codes(ir, nargs; debug=false)
                 if !isdefined(inst, :val)
                     continue # skip upsnode
                 end
-                loc = getlocal!(SSAValue(sidx))
+                loc = getlocal!(ssa)
                 push!(exprs[bidx], emit_val(inst.val))
                 push!(exprs[bidx], local_set(loc))
             elseif inst isa PhiNode
                 # handled on incoming blocks
             elseif Meta.isexpr(inst, :invoke)
+                f = inst.args[2]
+                f = f isa GlobalRef && isconst(f) ? getfield(f.mod, f.name) : f
+                # TODO: use the exception handling proposal
+                if f === Core.throw_inexacterror ||
+                    f === Core.throw ||
+                    f === Base.Math.throw_complex_domainerror
+
+                    push!(exprs[bidx], unreachable())
+                    continue
+                end
                 for arg in inst.args[begin+2:end]
                     push!(exprs[bidx], emit_val(arg))
                 end
                 @warn "invoke is currently emulated" inst
                 push!(exprs[bidx], call(0))
-                loc = getlocal!(SSAValue(sidx))
+                loc = getlocal!(ssa)
                 push!(exprs[bidx], local_set(loc))
             else
                 @warn "Unhandled instruction" inst typeof(inst)

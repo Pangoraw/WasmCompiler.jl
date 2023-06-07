@@ -157,8 +157,10 @@ _printwasm(io::IO, ::i32_le_u) = _printinst(io, "i32.le_u")
 _printwasm(io::IO, ::i64_le_s) = _printinst(io, "i64.le_s")
 _printwasm(io::IO, ::i64_le_u) = _printinst(io, "i64.le_u")
 
+_printwasm(io::IO, ::i32_wrap_i64) = _printinst(io, "i32.wrap_i64")
 _printwasm(io::IO, ::i64_extend_i32_s) = _printinst(io, "i64.extend_i32_s")
 _printwasm(io::IO, ::i64_extend_i32_u) = _printinst(io, "i64.extend_i32_u")
+_printwasm(io::IO, ::f64_promote_f32) = _printinst(io, "f64.promote_f32")
 
 _printwasm(io::IO, ::f32_convert_i32_s) = _printinst(io, "f32.convert_i32_s")
 _printwasm(io::IO, ::f32_convert_i32_u) = _printinst(io, "f32.convert_i32_u")

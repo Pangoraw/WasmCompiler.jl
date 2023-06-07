@@ -61,6 +61,8 @@ function dobranch(relooper::Relooper, source, target)
 end
 
 isreturn(relooper, bidx) = relooper.ir.stmts[relooper.ir.cfg.blocks[bidx].stmts.stop][:inst] isa Core.ReturnNode
+isunreachable(relooper, bidx) = isreturn(relooper, bidx) && !isdefined(relooper.ir.stmts[relooper.ir.cfg.blocks[bidx].stmts.stop][:inst], :val)
+
 function getsuccs(relooper, bidx)
     ir = relooper.ir
     block = ir.cfg.blocks[bidx]
@@ -87,7 +89,11 @@ end
 function nestwithin!(relooper::Relooper, bidx, mergenodes)
     if isempty(mergenodes)
         if isreturn(relooper, bidx)
-            push!(relooper.exprs[bidx], return_())
+            if isunreachable(relooper, bidx)
+                push!(relooper.exprs[bidx], unreachable())
+            else
+                push!(relooper.exprs[bidx], return_())
+            end
             return relooper.exprs[bidx]
         end
 
