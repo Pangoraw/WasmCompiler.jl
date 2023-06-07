@@ -21,7 +21,7 @@ end
 
 Relooper(exprs, ir::Core.Compiler.IRCode) =
     Relooper(
-        exprs
+        exprs,
         ir,
         Core.Compiler.naive_idoms(ir.cfg.blocks, false),
         1:length(ir.cfg.blocks) |> collect,# reverse_postorder(ir.cfg.blocks), # FIXME

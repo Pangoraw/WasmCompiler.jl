@@ -561,8 +561,10 @@ function emit_codes(ir, nargs; debug=false)
                         push!(exprs[bidx], i32_eq())
                     elseif all(arg -> irtype(arg) == i64, inst.args[begin+1:end])
                         push!(exprs[bidx], i64_eq())
-                    elseif all(arg -> irtype(arg) == i32, inst.args[begin+1:end])
-                        push!(exprs[bidx], i32_eq())
+                    elseif all(arg -> irtype(arg) == f32, inst.args[begin+1:end])
+                        push!(exprs[bidx], f32_eq())
+                    elseif all(arg -> irtype(arg) == f64, inst.args[begin+1:end])
+                        push!(exprs[bidx], f64_eq())
                     else
                         error("invalid sub_int")
                     end
@@ -587,7 +589,7 @@ function emit_codes(ir, nargs; debug=false)
             elseif inst isa GotoNode 
                 # pass
             elseif inst isa PhiCNode
-                # handled by assigning a local to each PhiCNode
+                # handled by assigning a local to each PhiCNode at the start of emission
             elseif inst isa UpsilonNode
                 if !isdefined(inst, :val)
                     continue # skip upsnode
@@ -597,6 +599,14 @@ function emit_codes(ir, nargs; debug=false)
                 push!(exprs[bidx], local_set(loc))
             elseif inst isa PhiNode
                 # handled on incoming blocks
+            elseif Meta.isexpr(inst, :invoke)
+                for arg in inst.args[begin+2:end]
+                    push!(exprs[bidx], emit_val(arg))
+                end
+                @warn "invoke is currently emulated" inst
+                push!(exprs[bidx], call(0))
+                loc = getlocal!(SSAValue(sidx))
+                push!(exprs[bidx], local_set(loc))
             else
                 @warn "Unhandled instruction" inst typeof(inst)
             end
