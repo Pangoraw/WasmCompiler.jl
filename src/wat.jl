@@ -9,6 +9,14 @@ function _printwasm(io::IO, mod::WModule)
     for type in mod.types
         if type isa StructType
             _printwasm(io, type)
+        elseif type isa RecursiveZone
+            print(io, INDENT_S^indent, "(")
+            _printkw(io, "rec"); println(io)
+            ctx = IOContext(io, :indent => indent + 2)
+            for struct_ in type.structs
+                _printwasm(ctx, struct_) 
+            end
+            println(io, INDENT_S^indent, ")")
         else
             error("don't know how to export $type")
         end
@@ -177,6 +185,8 @@ _printwasm(io::IO, ::i32_reinterpret_f32) = _printinst(io, "i32.reinterpret_f32"
 _printwasm(io::IO, ::i64_reinterpret_f64) = _printinst(io, "i64.reinterpret_f64")
 _printwasm(io::IO, ::f32_reinterpret_i32) = _printinst(io, "f32.reinterpret_i32")
 _printwasm(io::IO, ::f64_reinterpret_i64) = _printinst(io, "f64.reinterpret_i64")
+
+_printwasm(io::IO, s::string_const) = (_printinst(io, "string.const"); print(io, " \"", s.contents, "\""))
 
 function _printwasm(io::IO, inst::Inst)
     name = string(nameof(typeof(inst)))

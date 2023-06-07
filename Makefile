@@ -1,6 +1,6 @@
 #wasm-as --enable-gc --enable-strings --enable-tail-call --enable-reference-types --enable-bulk-memory bootstrap.wat -o bootstrap.wasm
 
-BINARYEN_FEATURES=--enable-gc  
+BINARYEN_FEATURES=--enable-gc --enable-strings
 WASM_AS=wasm-as $(BINARYEN_FEATURES) --enable-reference-types
 WAT_DESUGAR=wat-desugar $(BINARYEN_FEATURES)
 

@@ -31,14 +31,17 @@ struct StructField
 end
 
 struct StructType <: WasmType
-    rec::Bool
     name::Union{Nothing,String}
     fields::Vector{StructField}
 end
 
+struct RecursiveZone <: WasmType
+    structs::Vector{StructType}
+end
+
 function jl_to_struct(T)
     mut = ismutabletype(T)
-    StructType(true, nameof(T) |> string, [
+    StructType(nameof(T) |> string, [
         StructField(valtype(FT), FN isa Symbol ? string(FN) : nothing, mut)
         for (FT, FN) in zip(fieldtypes(T), fieldnames(T))
     ])
@@ -201,6 +204,25 @@ end
 struct struct_get <: Inst
     typeidx::Index
     fieldidx::Index
+end
+
+struct array_new <: Inst
+    typeidx::Index
+end
+struct array_len <: Inst end
+struct array_get <: Inst
+    typeidx::Index
+end
+
+struct ref_cast <: Inst
+    typeidx::Index
+end
+struct ref_test <: Inst
+    typeidx::Index
+end
+
+struct string_const <: Inst
+    contents::String
 end
 
 struct Func
@@ -427,6 +449,8 @@ function emit_codes(ir, nargs; debug=false)
             f32_const(val)
         elseif val isa Float64
             f64_const(val)
+        elseif val isa String
+            string_const(val)
         elseif isnothing(val)
             nop()
         else
@@ -560,13 +584,14 @@ function emit_codes(ir, nargs; debug=false)
                     push!(exprs[bidx], local_set(getlocal!(ssa)))
                     continue
                 elseif f === Base.neg_int
-                    typ = jltype(inst.args)
+                    arg = inst.args[2]
+                    typ = jltype(arg)
                     if typ == Bool
-                        push!(exprs[bidx], nop())
+                        push!(exprs[bidx], emit_val(arg))
                     elseif typ == Int32 || typ == UInt32
-                        push!(exprs[bidx], i32_const(0), emit_val(inst.args[2]), i32_sub())
+                        push!(exprs[bidx], i32_const(0), emit_val(arg), i32_sub())
                     elseif typ == Int64 || typ == UInt64
-                        push!(exprs[bidx], i64_const(0), emit_val(inst.args[2]), i64_sub())
+                        push!(exprs[bidx], i64_const(0), emit_val(arg), i64_sub())
                     else
                         error("invalid neg_int $inst")
                     end
