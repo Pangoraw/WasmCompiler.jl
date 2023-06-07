@@ -1,4 +1,5 @@
-import Core.Compiler: widenconst, PiNode, PhiNode, ReturnNode, GotoIfNot, GotoNode, SSAValue
+import Core.Compiler: widenconst, PiNode, PhiNode, ReturnNode,
+    GotoIfNot, GotoNode, SSAValue, UpsilonNode, PhiCNode
 
 @enum ValType i32 i64 f32 f64 v128 funcref externref
 
@@ -301,269 +302,48 @@ function Base.foreach(f, if_::If)
     end
 end
 
-struct Relooper
-    # We already have emitted the code for each block content
-    exprs::Vector{Vector{Inst}}
-    ir::Core.Compiler.IRCode
-    idoms::Vector{Int}
-    order::Vector{Int}
-    context::Vector{Int}
+struct Intrinsic
+    int::Bool
+    s32::Inst
+    s64::Inst
 end
 
-Relooper(ir::Core.Compiler.IRCode) =
-    Relooper(
-        [[i32_const(i)] for i in 1:length(ir.cfg.blocks)],
-        ir, Core.Compiler.naive_idoms(ir.cfg.blocks, false),
-        reverse_postorder(ir.cfg.blocks), Int[],
-    )
-
-function reverse_postorder(blocks)
-    dfs = Core.Compiler.DFS(blocks, false)
-    reverse(dfs.to_post) # is this correct?
-end
-
-function reloop!(relooper, bidx=1)
-    (; ir, idoms) = relooper
-    (; cfg) = ir
-    (; stmts, preds, succs) = cfg.blocks[bidx]
-
-    hasbackedge = any(>=(bidx), preds)
-    toplace = findall(==(bidx), idoms)
-    toplace = sort(collect(toplace), by=b -> relooper.order[b])
-
-    @info hasbackedge bidx toplace
-
-    # @info "Placing $bidx" toplace
-
-    if length(toplace) == 0
-        if length(succs) == 0
-            return
-        end
-
-        @assert length(succs) == 1 "not supported $succs"
-        push!(
-            relooper.exprs[bidx],
-            br(0),
-        )
-    elseif length(toplace) == 1
-        type = hasbackedge ? Loop : Block
-        toplace = only(toplace)
-        push!(
-            relooper.exprs[bidx],
-            type(voidtype, relooper.exprs[toplace]),
-        )
-        reloop!(relooper, toplace)
-    elseif length(succs) == 2 && !hasbackedge
-        gotoifnot = ir.stmts[stmts.stop][:inst]
-        if gotoifnot isa Core.GotoNode
-            gotoifnot = ir.stmts[stmts.stop - 1][:inst]::Core.GotoIfNot
-        end
-        falsedest = gotoifnot.dest
-        truedest = setdiff(succs, falsedest) |> only
-
-        push!(
-            relooper.exprs[bidx],
-            If(voidtype,
-               relooper.exprs[truedest],
-               relooper.exprs[falsedest],
-            )
-        )
-
-        for b in toplace
-            b ∈ (truedest, falsedest) && continue
-            push!(
-                relooper.exprs[bidx],
-                Block(
-                    voidtype,
-                    relooper.exprs[b],
-                )
-            )
-        end
-
-        for b in toplace
-            reloop!(relooper, b)
-        end
-    elseif length(succs) == 2 && hasbackedge
-        gotoifnot = ir.stmts[stmts.stop][:inst]
-        if gotoifnot isa Core.GotoNode
-            gotoifnot = ir.stmts[stmts.stop - 1][:inst]::Core.GotoIfNot
-        end
-        falsedest = gotoifnot.dest
-        truedest = setdiff(succs, falsedest) |> only
-
-        push!(
-            relooper.exprs[bidx],
-            Loop(voidtype,
-                Inst[
-                    If(voidtype,
-                        relooper.exprs[truedest],
-                        relooper.exprs[falsedest],
-                    )
-                ]
-            )
-        )
-
-        for b in toplace
-            reloop!(relooper, b)
-        end
-    else
-        error("cannot place block $bidx (toplace = $(toplace))")
-    end
-end
-
-function brindex(relooper::Relooper, l, i=0)
-    relooper.context[end-i] == l ?
-        i : brindex(relooper, l, i+1)
-end
-
-function ismergenode(relooper::Relooper, bidx)
-    block = relooper.ir.cfg.blocks[bidx]
-    length(block.preds) >= 2 && all(b -> relooper.order[b] < relooper.order[bidx], block.preds)
-end
-
-function isloopheader(relooper::Relooper, bidx)
-    block = relooper.ir.cfg.blocks[bidx]
-    any(b -> relooper.order[b] >= relooper.order[bidx], block.preds)
-end
-
-function dobranch(relooper::Relooper, source, target)
-    if !(target > source) # isbackward
-        i = brindex(relooper, target)
-        br(i)
-    elseif ismergenode(relooper, target) # ismergelabel
-        i = brindex(relooper, target)
-        br(i)
-    else
-        donode!(relooper, target)
-    end
-end
-
-isreturn(relooper, bidx) = relooper.ir.stmts[relooper.ir.cfg.blocks[bidx].stmts.stop][:inst] isa Core.ReturnNode
-function getsuccs(relooper, bidx)
-    ir = relooper.ir
-    block = ir.cfg.blocks[bidx]
-    @assert length(block.succs) <= 2
-
-    gotoifnot = ir.stmts[block.stmts.stop][:inst]
-    if length(block.succs) == 1
-        return gotoifnot isa Core.GotoNode ?
-            gotoifnot.label : bidx + 1, nothing
-    end
-
-    if gotoifnot isa Core.GotoNode
-        gotoifnot = ir.stmts[stmts.stop - 1][:inst]::Core.GotoIfNot
-    end
-
-    falsedest = gotoifnot.dest
-
-    truedest = block.succs[1] == falsedest ?
-        last(block.succs) : first(block.succs)
-
-    truedest, falsedest
-end
-
-function nestwithin!(relooper::Relooper, bidx, mergenodes)
-    if isempty(mergenodes)
-        if isreturn(relooper, bidx)
-            push!(relooper.exprs[bidx], return_())
-            return relooper.exprs[bidx]
-        end
-
-        truedest, falsedest = getsuccs(relooper,bidx)
-
-        if isnothing(falsedest)
-            push!(relooper.exprs[bidx], dobranch(relooper, bidx, truedest))
-        else
-            push!(relooper.context, -1)
-            push!(relooper.exprs[bidx],
-                If(
-                    voidtype,
-                    Inst[dobranch(relooper, bidx, truedest)],
-                    Inst[dobranch(relooper, bidx, falsedest)],
-                ),
-            )
-            @assert -1 == pop!(relooper.context)
-        end
-        return relooper.exprs[bidx]
-    end
-
-    (y_n, ys...) = mergenodes
-
-    push!(relooper.context, y_n)
-    codeforx = Block(voidtype, nestwithin!(relooper, bidx, ys))
-    @assert y_n == pop!(relooper.context)
-    Inst[
-        codeforx,
-        donode!(relooper, y_n),
-    ]
-end
-
-function donode!(relooper::Relooper, bidx)
-    (; ir, idoms) = relooper
-    (; cfg) = ir
-    (; stmts, preds, succs) = cfg.blocks[bidx]
-
-    toplace = sort(findall(==(bidx), idoms), by=b -> relooper.order[b])
-
-    if isloopheader(relooper, bidx)
-        push!(relooper.context, bidx)
-        codeforx = nestwithin!(relooper, bidx, filter(b -> ismergenode(relooper, b), toplace))
-        @assert bidx == pop!(relooper.context)
-        Loop(voidtype, codeforx)
-    else
-        push!(relooper.context, -1)
-        codeforx = nestwithin!(relooper, bidx, filter(b -> ismergenode(relooper, b), toplace))
-        @assert -1 == pop!(relooper.context)
-        Block(voidtype, codeforx)
-    end
-end
-
-struct IntIntrinsic
-    i32::Inst
-    i64::Inst
-end
-
-struct FloatIntrinsic
-    f32::Inst
-    f64::Inst
-end
-
-const Intrinsics = Dict(
-    Base.eq_int  => IntIntrinsic(i32_eq(), i64_eq()),
-    Base.ne_int  => IntIntrinsic(i32_ne(), i64_ne()),
-    Base.slt_int => IntIntrinsic(i32_lt_s(), i64_lt_s()),
-    Base.ult_int => IntIntrinsic(i32_lt_u(), i64_lt_u()),
-    Base.sle_int => IntIntrinsic(i32_le_s(), i64_le_s()),
-    Base.ule_int => IntIntrinsic(i32_le_u(), i64_le_u()),
-    Base.mul_int => IntIntrinsic(i32_mul(), i64_mul()),
-    Base.add_int => IntIntrinsic(i32_add(), i64_add()),
-    Base.sub_int => IntIntrinsic(i32_sub(), i64_sub()),
-    Base.sdiv_int => IntIntrinsic(i32_div_s(), i64_div_s()),
-    Base.udiv_int => IntIntrinsic(i32_div_u(), i64_div_u()),
-    Base.srem_int => IntIntrinsic(i32_rem_s(), i64_rem_s()),
-    Base.urem_int => IntIntrinsic(i32_rem_u(), i64_rem_u()),
-    Base.and_int => IntIntrinsic(i32_and(), i64_and()),
-    Base.or_int => IntIntrinsic(i32_or(), i64_or()),
-    Base.xor_int => IntIntrinsic(i32_xor(), i64_xor()),
+const INTRINSICS = Dict(
+    Base.eq_int  => Intrinsic(true, i32_eq(), i64_eq()),
+    Base.ne_int  => Intrinsic(true, i32_ne(), i64_ne()),
+    Base.slt_int => Intrinsic(true, i32_lt_s(), i64_lt_s()),
+    Base.ult_int => Intrinsic(true, i32_lt_u(), i64_lt_u()),
+    Base.sle_int => Intrinsic(true, i32_le_s(), i64_le_s()),
+    Base.ule_int => Intrinsic(true, i32_le_u(), i64_le_u()),
+    Base.mul_int => Intrinsic(true, i32_mul(), i64_mul()),
+    Base.add_int => Intrinsic(true, i32_add(), i64_add()),
+    Base.sub_int => Intrinsic(true, i32_sub(), i64_sub()),
+    Base.sdiv_int => Intrinsic(true, i32_div_s(), i64_div_s()),
+    Base.udiv_int => Intrinsic(true, i32_div_u(), i64_div_u()),
+    Base.srem_int => Intrinsic(true, i32_rem_s(), i64_rem_s()),
+    Base.urem_int => Intrinsic(true, i32_rem_u(), i64_rem_u()),
+    Base.and_int => Intrinsic(true, i32_and(), i64_and()),
+    Base.or_int => Intrinsic(true, i32_or(), i64_or()),
+    Base.xor_int => Intrinsic(true, i32_xor(), i64_xor()),
     # TODO: sh fns needs special handling as you can specify the shift with a different type
-    Base.lshr_int => IntIntrinsic(i32_shr_u(), i64_shr_u()),
-    Base.ashr_int => IntIntrinsic(i32_shr_s(), i64_shr_s()),
-    Base.shl_int => IntIntrinsic(i32_shl(), i64_shl()),
-    Base.mul_float => FloatIntrinsic(f32_mul(), f64_mul()),
-    Base.add_float => FloatIntrinsic(f32_add(), f64_add()),
-    Base.sub_float => FloatIntrinsic(f32_sub(), f64_sub()),
-    Base.neg_float => FloatIntrinsic(f32_neg(), f64_neg()),
-    Base.div_float => FloatIntrinsic(f32_div(), f64_div()),
-    Base.eq_float => FloatIntrinsic(f32_eq(), f64_eq()),
-    Base.ne_float => FloatIntrinsic(f32_ne(), f64_ne()),
-    Base.lt_float => FloatIntrinsic(f32_lt(), f64_lt()),
-    Base.le_float => FloatIntrinsic(f32_le(), f64_le()),
-    Base.abs_float => FloatIntrinsic(f32_abs(), f64_abs()),
-    Base.copysign_float => FloatIntrinsic(f32_copysign(), f64_copysign()),
-    Base.ceil_llvm => FloatIntrinsic(f32_ceil(), f64_ceil()),
-    Base.floor_llvm => FloatIntrinsic(f32_floor(), f64_floor()),
-    Base.trunc_llvm => FloatIntrinsic(f32_trunc(), f64_trunc()),
-    Base.rint_llvm => FloatIntrinsic(f32_nearest(), f64_nearest()),
+    Base.lshr_int => Intrinsic(true, i32_shr_u(), i64_shr_u()),
+    Base.ashr_int => Intrinsic(true, i32_shr_s(), i64_shr_s()),
+    Base.shl_int => Intrinsic(true, i32_shl(), i64_shl()),
+    Base.mul_float => Intrinsic(false, f32_mul(), f64_mul()),
+    Base.add_float => Intrinsic(false, f32_add(), f64_add()),
+    Base.sub_float => Intrinsic(false, f32_sub(), f64_sub()),
+    Base.neg_float => Intrinsic(false, f32_neg(), f64_neg()),
+    Base.div_float => Intrinsic(false, f32_div(), f64_div()),
+    Base.eq_float => Intrinsic(false, f32_eq(), f64_eq()),
+    Base.ne_float => Intrinsic(false, f32_ne(), f64_ne()),
+    Base.lt_float => Intrinsic(false, f32_lt(), f64_lt()),
+    Base.le_float => Intrinsic(false, f32_le(), f64_le()),
+    Base.abs_float => Intrinsic(false, f32_abs(), f64_abs()),
+    Base.copysign_float => Intrinsic(false, f32_copysign(), f64_copysign()),
+    Base.ceil_llvm => Intrinsic(false, f32_ceil(), f64_ceil()),
+    Base.floor_llvm => Intrinsic(false, f32_floor(), f64_floor()),
+    Base.trunc_llvm => Intrinsic(false, f32_trunc(), f64_trunc()),
+    Base.rint_llvm => Intrinsic(false, f32_nearest(), f64_nearest()),
 )
 
 function emit_codes(ir, nargs; debug=false)
@@ -621,6 +401,21 @@ function emit_codes(ir, nargs; debug=false)
             nop()
         else
             error("invalid value $val @ $(typeof(val))")
+        end
+    end
+
+    for (sidx, stmt) in enumerate(ir.stmts)
+        inst = stmt[:inst] 
+        inst isa PhiCNode || continue
+
+        ssa = SSAValue(sidx)
+
+        phic_loc = getlocal!(ssa)
+
+        for ups_ssa in inst.values
+            @assert ups_ssa isa SSAValue
+            @assert ir.stmts[ups_ssa.id][:inst] isa UpsilonNode
+            ssa_to_local[ups_ssa.id] = phic_loc
         end
     end
 
@@ -730,21 +525,21 @@ function emit_codes(ir, nargs; debug=false)
                 for arg in inst.args[begin+1:end]
                     push!(exprs[bidx], emit_val(arg))
                 end
-                if haskey(Intrinsics, f)
-                    intr = Intrinsics[f]
-                    newinst = if intr isa IntIntrinsic
+                if haskey(INTRINSICS, f)
+                    intr = INTRINSICS[f]
+                    newinst = if intr.int
                         if all(arg -> irtype(arg) == i32, inst.args[begin+1:end])
-                            intr.i32
+                            intr.s32
                         elseif all(arg -> irtype(arg) == i64, inst.args[begin+1:end])
-                            intr.i64
+                            intr.s64
                         else
                             error("unsupported call $inst")
                         end
-                    elseif intr isa FloatIntrinsic
+                    else
                         if all(arg -> irtype(arg) == f32, inst.args[begin+1:end])
-                            intr.f32 
+                            intr.s32 
                         elseif all(arg -> irtype(arg) == f64, inst.args[begin+1:end])
-                            intr.f64
+                            intr.s64
                         else
                             error("unsupported call $inst")
                         end
@@ -784,10 +579,22 @@ function emit_codes(ir, nargs; debug=false)
             elseif inst isa GotoIfNot 
                 push!(exprs[bidx], emit_val(inst.cond))
             elseif inst isa ReturnNode
+                if !isdefined(inst, :val)
+                    continue
+                end
                 push!(exprs[bidx], emit_val(inst.val))
                 # push!(exprs[bidx], return_())
-            elseif inst isa GotoNode
+            elseif inst isa GotoNode 
                 # pass
+            elseif inst isa PhiCNode
+                # handled by assigning a local to each PhiCNode
+            elseif inst isa UpsilonNode
+                if !isdefined(inst, :val)
+                    continue # skip upsnode
+                end
+                loc = getlocal!(SSAValue(sidx))
+                push!(exprs[bidx], emit_val(inst.val))
+                push!(exprs[bidx], local_set(loc))
             elseif inst isa PhiNode
                 # handled on incoming blocks
             else
@@ -819,16 +626,10 @@ function emit_func(f, types; optimize=false, debug=false)
     nargs = length(types.parameters)
     exprs, locals = emit_codes(ir, nargs; debug)
 
-    relooper = Relooper(
-        exprs,
-        ir,
-        Core.Compiler.naive_idoms(ir.cfg.blocks, false),
-        1:length(ir.cfg.blocks) |> collect,# reverse_postorder(ir.cfg.blocks), # FIXME
-        Int[],
-    )
+    relooper = Relooper(exprs, ir)
 
     expr = Inst[
-        donode!(relooper, 1),
+        reloop!(relooper),
         unreachable(), # CF will go through a ReturnNode
     ]
 
