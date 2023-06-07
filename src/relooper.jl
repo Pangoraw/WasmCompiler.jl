@@ -1,14 +1,19 @@
 """
     Relooper(exprs, ir)
 
-This struct contains the state needed to transform the `goto` style control
-of Julia SSAIR to WebAssembly valid control using `Loop`, `Block` and `If`
+This struct contains the state needed to transform the `goto` style control flow
+of Julia SSAIR to WebAssembly valid control flow using `Loop`, `Block` and `If`
 constructs.
 
 The implementation is based on the paper:
 
 > Beyond Relooper, Recursive Generation of WebAssembly \\
 > ICFP 2022, Norman Ramsey
+
+TODOs:
+   - [ ] test and support ireducible control flow.
+   - [ ] exception handling with `:enter` and `:leave`.
+
 """
 struct Relooper
     # We already have emitted the code for each block content

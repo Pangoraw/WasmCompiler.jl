@@ -147,6 +147,8 @@ function _printinst(io::IO, s)
 end
 
 _printwasm(io::IO, ::return_) = _printinst(io, "return")
+_printwasm(io::IO, t::throw_) = (_printinst(io, "throw"); print(io, " ", t.tag))
+_printwasm(io::IO, rt::rethrow_) = (_printinst(io, "rethrow"); print(io, " ", rt.label))
 
 _printwasm(io::IO, ::i32_lt_s) = _printinst(io, "i32.lt_s")
 _printwasm(io::IO, ::i32_lt_u) = _printinst(io, "i32.lt_u")
@@ -241,6 +243,24 @@ function _printwasm(io::IO, i::If)
     _printkw(io, "else")
     println(io)
     _printwasm(ctx, i.falseinst)
+    print(io, INDENT_S^indent)
+    _printkw(io, "end")
+end
+
+function _printwasm(io::IO, try_::Try)
+    indent = get(io, :indent, 2)
+    print(io, INDENT_S^indent)
+    _printkw(io, "try")
+    println(io)
+    _printwasm(io, try_.fntype)
+    ctx = IOContext(io, :indent => indent + 2)
+    _printwasm(ctx, try_.inst)
+    for cblock in try_.catches
+        print(io, INDENT_S^indent)
+        _printkw(io, isnothing(cblock.tag) ? "catch_all" : "catch")
+        println(io)
+        _printwasm(ctx, cblock.inst)
+    end
     print(io, INDENT_S^indent)
     _printkw(io, "end")
 end

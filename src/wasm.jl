@@ -78,6 +78,19 @@ struct Loop <: ContainerInst
     inst::Vector{Inst}
 end
 
+const Tag = UInt32
+
+struct CatchBlock
+    tag::Union{Nothing,Tag} # use nothing for catch_all
+    inst::Vector{Inst}
+end
+
+struct Try <: ContainerInst
+    fntype::FuncType
+    inst::Vector{Inst}
+    catches::Vector{CatchBlock}
+end
+
 struct global_get <: Inst
     n::Index
 end
@@ -161,6 +174,14 @@ end
 struct br_table <: Inst
     labels::Vector{Int}
     default::Index
+end
+
+# Those are not keywords but still
+struct throw_ <: Inst
+    tag::Tag
+end
+struct rethrow_ <: Inst
+    label::Index
 end
 
 struct return_ <: TerminatorInst end
