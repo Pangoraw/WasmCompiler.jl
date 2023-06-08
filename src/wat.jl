@@ -163,6 +163,8 @@ function _printwasm(io::IO, inst::Inst)
     name = string(nameof(typeof(inst)))
     name = if any(t -> startswith(name, string(t) * '_'), (i32, i64, f32, f64))
         name[begin:begin+2] * '.' * name[begin+4:end]
+    elseif startswith(name, "br_")
+        name
     else
         replace(name, "_" => ".")
     end

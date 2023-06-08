@@ -148,6 +148,10 @@ struct br_table <: Inst
     labels::Vector{Int}
     default::Index
 end
+struct br_on_cast <: Inst
+    inputtype::Index
+    casttype::Index
+end
 
 # Those are not keywords but still
 struct throw_ <: Inst
