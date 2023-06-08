@@ -65,6 +65,8 @@ for (WT, T) in zip((f32, f64), (Float32, Float64))
     @eval struct $(Symbol(WT, "_const")) <: Inst
         val::$T
     end
+    @eval struct $(Symbol(WT, "_load")) <: Inst end
+    @eval struct $(Symbol(WT, "_store")) <: Inst end
 
     for f in ("abs", "neg", "sqrt", "ceil", "floor", "trunc", "nearest",
         "add", "sub", "mul", "div", "min", "max", "copysign",
@@ -77,6 +79,8 @@ for (WT, T) in zip((i32, i64), (Int32, Int64))
     @eval struct $(Symbol(WT, "_const")) <: Inst
         val::$T
     end
+    @eval struct $(Symbol(WT, "_load")) <: Inst end
+    @eval struct $(Symbol(WT, "_store")) <: Inst end
 
     for f in ("add", "sub", "mul", "div_u", "div_s", "rem_u", "rem_s",
         "and", "or", "xor", "shl", "shr_u", "shr_s", "rotl", "rotr",
@@ -85,6 +89,23 @@ for (WT, T) in zip((i32, i64), (Int32, Int64))
         @eval struct $(Symbol(WT, "_", f)) <: Inst end
     end
 end
+
+struct i32_load8_s <: Inst end
+struct i32_load8_u <: Inst end
+struct i64_load8_s <: Inst end
+struct i64_load8_u <: Inst end
+
+struct i32_load16_s <: Inst end
+struct i32_load16_u <: Inst end
+struct i64_load16_s <: Inst end
+struct i64_load16_u <: Inst end
+
+struct i32_store16 <: Inst end
+struct i64_store16 <: Inst end
+
+struct i64_store32 <: Inst end
+struct i64_load32_s <: Inst end
+struct i64_load32_u <: Inst end
 
 struct i64_extend32_s <: Inst end
 struct i64_extend_i32_s <: Inst end

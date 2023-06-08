@@ -63,3 +63,20 @@ end
     end
 end
 
+@testset "WAT: Instructions" begin
+    insts = Inst[
+        WC.i32_load(),
+        WC.i32_store(),
+        WC.i32_reinterpret_f32(),
+        WC.f32_reinterpret_i32(),
+    ]
+
+    io = IOBuffer()
+    WC._printwasm(io, insts)
+    wat = String(take!(io))
+
+    @test occursin("i32.load", wat)
+    @test occursin("i32.store", wat)
+    @test occursin("i32.reinterpret_f32", wat)
+    @test occursin("f32.reinterpret_i32", wat)
+end

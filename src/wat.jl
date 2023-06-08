@@ -157,40 +157,16 @@ end
 _printwasm(io::IO, ::return_) = _printinst(io, "return")
 _printwasm(io::IO, t::throw_) = (_printinst(io, "throw"); print(io, " ", t.tag))
 _printwasm(io::IO, rt::rethrow_) = (_printinst(io, "rethrow"); print(io, " ", rt.label))
-
-_printwasm(io::IO, ::i32_lt_s) = _printinst(io, "i32.lt_s")
-_printwasm(io::IO, ::i32_lt_u) = _printinst(io, "i32.lt_u")
-_printwasm(io::IO, ::i64_lt_s) = _printinst(io, "i64.lt_s")
-_printwasm(io::IO, ::i64_lt_u) = _printinst(io, "i64.lt_u")
-_printwasm(io::IO, ::i32_le_s) = _printinst(io, "i32.le_s")
-_printwasm(io::IO, ::i32_le_u) = _printinst(io, "i32.le_u")
-_printwasm(io::IO, ::i64_le_s) = _printinst(io, "i64.le_s")
-_printwasm(io::IO, ::i64_le_u) = _printinst(io, "i64.le_u")
-
-_printwasm(io::IO, ::i32_wrap_i64) = _printinst(io, "i32.wrap_i64")
-_printwasm(io::IO, ::i64_extend_i32_s) = _printinst(io, "i64.extend_i32_s")
-_printwasm(io::IO, ::i64_extend_i32_u) = _printinst(io, "i64.extend_i32_u")
-_printwasm(io::IO, ::f64_promote_f32) = _printinst(io, "f64.promote_f32")
-
-_printwasm(io::IO, ::f32_convert_i32_s) = _printinst(io, "f32.convert_i32_s")
-_printwasm(io::IO, ::f32_convert_i32_u) = _printinst(io, "f32.convert_i32_u")
-_printwasm(io::IO, ::f32_convert_i64_s) = _printinst(io, "f32.convert_i64_s")
-_printwasm(io::IO, ::f32_convert_i64_u) = _printinst(io, "f32.convert_i64_u")
-_printwasm(io::IO, ::f64_convert_i32_s) = _printinst(io, "f64.convert_i32_s")
-_printwasm(io::IO, ::f64_convert_i32_u) = _printinst(io, "f64.convert_i32_u")
-_printwasm(io::IO, ::f64_convert_i64_s) = _printinst(io, "f64.convert_i64_s")
-_printwasm(io::IO, ::f64_convert_i64_u) = _printinst(io, "f64.convert_i64_u")
-
-_printwasm(io::IO, ::i32_reinterpret_f32) = _printinst(io, "i32.reinterpret_f32")
-_printwasm(io::IO, ::i64_reinterpret_f64) = _printinst(io, "i64.reinterpret_f64")
-_printwasm(io::IO, ::f32_reinterpret_i32) = _printinst(io, "f32.reinterpret_i32")
-_printwasm(io::IO, ::f64_reinterpret_i64) = _printinst(io, "f64.reinterpret_i64")
-
 _printwasm(io::IO, s::string_const) = (_printinst(io, "string.const"); print(io, " \"", s.contents, "\""))
 
 function _printwasm(io::IO, inst::Inst)
     name = string(nameof(typeof(inst)))
-    _printinst(io, replace(name, "_" => "."))
+    name = if any(t -> startswith(name, string(t) * '_'), (i32, i64, f32, f64))
+        name[begin:begin+2] * '.' * name[begin+4:end]
+    else
+        replace(name, "_" => ".")
+    end
+    _printinst(io, name)
     for f in fieldnames(typeof(inst))
         fieldval = getfield(inst, f)
         isnothing(fieldval) && continue
