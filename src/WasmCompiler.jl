@@ -1,6 +1,8 @@
 module WasmCompiler
 
+include("./instructions.jl")
 include("./wasm.jl")
+include("./compiler.jl")
 include("./relooper.jl")
 include("./wat.jl")
 include("./optimize.jl")
