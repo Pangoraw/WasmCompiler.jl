@@ -267,10 +267,11 @@
             (if (i32.lt_s (local.get $pc) (local.get $len))
                 (then
                     (call $jl-repr
-                        (array.get $jl-values-t
-                            (struct.get $jl-simplevector-t $values
-                                (struct.get $jl-datatype-t $parameters (local.get $type)))
-                            (local.get $pc)))
+                        (ref.as_non_null
+                            (array.get $jl-values-t
+                                (struct.get $jl-simplevector-t $values
+                                    (struct.get $jl-datatype-t $parameters (local.get $type)))
+                                (local.get $pc))))
                     (local.set $pc (i32.add (local.get $pc) (i32.const 1)))
                     (if (i32.lt_s (local.get $pc) (local.get $len))
                         (then (call $log (string.const ","))))
@@ -280,9 +281,7 @@
         (call $newline))
 
     ;; An example of single dispatch using Wasm GC casts.
-    (func $jl-repr (param (ref null $jl-value-t))
-        (if (ref.is_null (local.get 0))
-            (then (unreachable)))
+    (func $jl-repr (param (ref $jl-value-t))
         (block 
             (block $nothing
                 (block $sym
