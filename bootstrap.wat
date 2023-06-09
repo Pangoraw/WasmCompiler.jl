@@ -81,8 +81,13 @@
     (global $jl-nothing-type (export "jl_nothing_type") (mut (ref null $jl-datatype-t)) (ref.null $jl-datatype-t))
     (global $jl-nothing (export "jl_nothing") (mut (ref null $jl-nothing-t)) (ref.null $jl-nothing-t))
 
+    ;; The exception thrown is stored in the global and the tag is simple $jl-exception-tag
+    (tag $jl-exception-tag (export "jl_exception_tag"))
+    (global $jl-exception (export "jl_exception") (mut (ref null $jl-value-t)) (ref.null $jl-value-t))
+ 
     ;; Bootstraping requires that build Core.DataType since it is the value of $jl-value-type
     ;; but it requires Core.TypeName which in turns requires Symbol and svec among other things.
+    ;; We use the start function $init to do that bootstrapping on the globals.
 
     (func $init
         (global.set $jl-datatype-type
