@@ -28,6 +28,7 @@ struct FuncRef <: WasmRef end
 struct ExternRef <: WasmRef end
 
 struct ArrayRef <: WasmRef
+    mut::Bool
     content::ValType
 end
 
@@ -222,6 +223,10 @@ struct array_get <: Inst
     typeidx::Index
 end
 
+struct ref_null <: Inst
+    typeidx::Index
+end
+struct ref_as_non_null <: Inst end
 struct ref_cast <: Inst
     typeidx::Index
 end

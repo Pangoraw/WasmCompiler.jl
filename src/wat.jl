@@ -122,6 +122,15 @@ function _printwasm(io::IO, ref::StructRef)
     print(io, ref.typeidx)
     print(io, ")")
 end
+function _printwasm(io::IO, arr::ArrayRef)
+    print(io, "(")
+    _printkw(io, "array")
+    print(io, " ")
+    arr.mut && (print(io, "("); _printkw(io, "mut"); print(io, " "))
+    _printwasm(io, arr.content)
+    arr.mut && print(io, ")")
+    print(io, ")")
+end
 
 function _printwasm(io::IO, fntype::FuncType)
     compact = get(io, :compact, true)
@@ -175,9 +184,12 @@ _printwasm(io::IO, rt::rethrow_) = (_printinst(io, "rethrow"); print(io, " ", rt
 _printwasm(io::IO, s::string_const) = (_printinst(io, "string.const"); print(io, " \"", s.contents, "\""))
 
 function _printwasm(io::IO, inst::Inst)
+    prefixes = ("i32", "i64", "f32", "f64", "ref", "struct", "string")
+
     name = string(nameof(typeof(inst)))
-    name = if any(t -> startswith(name, string(t) * '_'), (i32, i64, f32, f64))
-        name[begin:begin+2] * '.' * name[begin+4:end]
+    prefidx = findfirst(t -> startswith(name, string(t) * '_'), prefixes)
+    name = if !isnothing(prefidx)
+        name[begin:begin+length(prefixes[prefidx])-1] * '.' * name[begin+4:end]
     elseif startswith(name, "br_")
         name
     else
