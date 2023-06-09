@@ -85,6 +85,22 @@ function emit_codes(ir, nargs; debug=false)
 
     irtype(val) = valtype(jltype(val))
 
+    function emit_boxed(typ) # from valtype(typ) -> (ref $jl-value-t)
+        if typ == Int32
+            call("jl-box-Int32")
+        elseif typ == UInt32
+            call("jl-box-UInt32")
+        elseif typ == Int64
+            call("jl-box-Int64")
+        elseif typ == Float32
+            call("jl-box-Float32")
+        elseif typ == Float64
+            call("jl-box-Float64")
+        else
+            nop()
+        end
+    end
+
     function emit_val(val)
         if val isa Core.Argument
             # One indexing + Skip first arg

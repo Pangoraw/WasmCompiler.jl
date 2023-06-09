@@ -1,4 +1,40 @@
-@enum ValType i32 i64 f32 f64 v128 funcref externref
+const Index = UInt32
+
+abstract type ValType end
+
+abstract type WasmNumeric <: ValType end
+
+struct WasmInt32 <: WasmNumeric end
+struct WasmInt64 <: WasmNumeric end
+struct WasmFloat32 <: WasmNumeric end
+struct WasmFloat64 <: WasmNumeric end
+struct WasmVector128 <: WasmNumeric end
+
+Base.show(io::IO, ::WasmInt32) = print(io, "i32")
+Base.show(io::IO, ::WasmInt64) = print(io, "i64")
+Base.show(io::IO, ::WasmFloat32) = print(io, "f32")
+Base.show(io::IO, ::WasmFloat64) = print(io, "f64")
+Base.show(io::IO, ::WasmVector128) = print(io, "v128")
+
+const i32 = WasmInt32()
+const i64 = WasmInt64()
+const f32 = WasmFloat32()
+const f64 = WasmFloat64()
+const v128 = WasmVector128()
+
+abstract type WasmRef <: ValType end
+
+struct FuncRef <: WasmRef end
+struct ExternRef <: WasmRef end
+
+struct ArrayRef <: WasmRef
+    content::ValType
+end
+
+struct StructRef <: WasmRef
+    null::Bool
+    typeidx::Index
+end
 
 valtype(::Type{Bool}) = i32
 
@@ -6,8 +42,6 @@ valtype(::Type{Int32}) = i32
 valtype(::Type{Int64}) = i64
 valtype(::Type{Float32}) = f32
 valtype(::Type{Float64}) = f64
-
-const Index = UInt32
 
 abstract type Inst end
 

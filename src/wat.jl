@@ -114,13 +114,23 @@ function _printwasm(io::IO, structtype::StructType)
     println(io)
 end
 
+_printwasm(io::IO, val::ValType) = show(io, val)
+function _printwasm(io::IO, ref::StructRef)
+    print(io, "(")
+    _printkw(io, "ref"); print(io, " ")
+    ref.null && (_printkw(io, "null"); print(io, " "))
+    print(io, ref.typeidx)
+    print(io, ")")
+end
+
 function _printwasm(io::IO, fntype::FuncType)
     compact = get(io, :compact, true)
     if compact
         if length(fntype.params) > 0
           print(io, "("); _printkw(io, "param")
           for param in fntype.params
-              print(io, " ", param)
+              print(io, " ")
+              _printwasm(io, param)
           end
           print(io, ")")
         end
@@ -128,7 +138,8 @@ function _printwasm(io::IO, fntype::FuncType)
         if length(fntype.results) > 0
           print(io, " ("); _printkw(io, "result")
           for result in fntype.results
-              print(io, " ", result)
+              print(io, " ")
+              _printwasm(io, result)
           end
           print(io, ")")
         end
@@ -136,12 +147,16 @@ function _printwasm(io::IO, fntype::FuncType)
         for param in fntype.params
             print(io, "(")
             _printkw(io, "param")
-            print(io, " ", param, ") ")
+            print(io, " ")
+            _printwasm(io, param)
+            print(io, ") ")
         end
         for result in fntype.results
             print(io, "(")
             _printkw(io, "result")
-            print(io, " ", result, ") ")
+            print(io, " ")
+            _printwasm(io, result)
+            print(io, ") ")
         end
     end
     println(io)
@@ -191,7 +206,8 @@ function _printwasm(io::IO, f::Func)
             print(io, INDENT_S^(indent+2), "(")
             _printkw(io, "local")
             for loc in Iterators.drop(f.locals, length(f.fntype.params))
-                print(io, " ", loc)
+                print(io, " ")
+                _printwasm(io, loc)
             end
             println(io, ")")
         end
@@ -199,7 +215,9 @@ function _printwasm(io::IO, f::Func)
         for loc in Iterators.drop(f.locals, length(f.fntype.params))
             print(io, INDENT_S^(indent+2), "(")
             _printkw(io, "local")
-            println(io, " ", loc, ")")
+            println(io, " ")
+            _printwasm(io, loc)
+            print(io, ")")
         end
     end
     ctx = IOContext(io, :indent => indent + 2)
