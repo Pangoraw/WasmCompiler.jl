@@ -1,19 +1,43 @@
 <html>
-    <body>
-        <script src="reflect.js"></script>
-        <script type="module">
-            const bytecode = fetch("./bootstrap.wasm")
-            const {module, instance} = await WebAssembly.instantiateStreaming(bytecode)
 
-            console.log(instance.exports)
+<body>
+    <script src="reflect.js"></script>
+    <script type="module">
+        const output = document.getElementById("output")
 
-            // console.log(instance.exports.add(1,2))
+        const bytecode = fetch("./bootstrap.wasm")
+        const { module, instance } = await WebAssembly.instantiateStreaming(bytecode, {
+            console: {
+                log: (msg) => {
+                    output.innerHTML += msg
+                }, newline: () => {
+                    output.appendChild(document.createElement("br"))
+                }
+            }
+        })
+        const exports = instance.exports
 
-            let ref = instance.exports.makeRef(4, 2)
-            console.log(ref)
-            console.log(instance.exports.getX(ref))
+        const { jl_repr, ...rest } = exports
 
-            // let ref = instance.exports.makeRef(1, 2)
-        </script>
-    </body>
+        for (let [k, v] of Object.entries(rest)) {
+            if (v.value !== undefined) {
+                console.log(k, v)
+                jl_repr(v.value)
+            }
+        }
+
+        // let ref = instance.exports.makeRef(1, 2)
+    </script>
+
+    <code id="output"></code>
+
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            font-size: 30px;
+        }
+    </style>
+</body>
+
 </html>

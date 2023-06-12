@@ -41,11 +41,7 @@ end
     end
 
     f = WC.emit_func(func, Tuple{Int32,Int32}; optimize=true)
-    mod = WC.WModule(
-        [], [f], [], [],
-        [], [], [], nothing,
-        [], [WC.FuncExport("func", 1)],
-    )
+    mod = WC.WModule(f)
 
     wat = sprint(WC._printwasm, mod)
     wasm = Wasmtime.wat2wasm(wat)
@@ -64,7 +60,7 @@ end
 end
 
 @testset "WAT: Instructions" begin
-    insts = Inst[
+    insts = WC.Inst[
         WC.i32_load(),
         WC.i32_store(),
         WC.i32_reinterpret_f32(),
@@ -79,4 +75,48 @@ end
     @test occursin("i32.store", wat)
     @test occursin("i32.reinterpret_f32", wat)
     @test occursin("f32.reinterpret_i32", wat)
+end
+
+fac(n) = iszero(n) ? one(n) : fac(n-one(n)) * n
+
+@testset "Recursive call" begin
+    f = WC.emit_func(fac, Tuple{Int32}; optimize=true)
+    mod = WC.WModule(f)
+
+    wat = sprint(WC._printwasm, mod)
+    wasm = Wasmtime.wat2wasm(wat)
+
+    engine = Wasmtime.WasmEngine()
+    store = Wasmtime.WasmStore(engine)
+    wmodule = Wasmtime.WasmModule(store, wasm)
+    instance = Wasmtime.WasmInstance(store, wmodule)
+
+    wfac = Wasmtime.exports(instance).fac
+
+    for x in Int32(0):Int32(10)
+        @test convert(Int32, only(wfac(x))) == fac(x)
+    end
+end
+
+@noinline g(a, b) = a < 1 ? f(a, b) : b
+f(a, b) = g(a - 1, b)
+
+@testset "mutually recursive functions" begin
+    mod = WC.WModule()
+
+    f = WC.emit_func!(mod, fac, Tuple{Int32,Int32}; optimize=true)
+    export!(mod, "f", findfirst(f -> f.name == "f", mod.funcs))
+
+    wat = sprint(WC._printwasm, mod)
+    wasm = Wasmtime.wat2wasm(wat)
+
+    engine = Wasmtime.WasmEngine()
+    store = Wasmtime.WasmStore(engine)
+    wmodule = Wasmtime.WasmModule(store, wasm)
+    instance = Wasmtime.WasmInstance(store, wmodule)
+
+    wf = Wasmtime.exports(instance).f
+
+    x = Int32(10)
+    @test f(x) == wf(x)
 end

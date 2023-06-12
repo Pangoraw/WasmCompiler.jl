@@ -38,11 +38,17 @@ struct StructRef <: WasmRef
 end
 
 valtype(::Type{Bool}) = i32
-
 valtype(::Type{Int32}) = i32
 valtype(::Type{Int64}) = i64
 valtype(::Type{Float32}) = f32
 valtype(::Type{Float64}) = f64
+
+abstract type WasmType end
+
+struct FuncType <: WasmType
+    params::Vector{ValType}
+    results::Vector{ValType}
+end
 
 abstract type Inst end
 
@@ -238,47 +244,3 @@ struct string_const <: Inst
     contents::String
 end
 
-## Utilities
-
-function Base.map!(f, cont::Union{Func,Block,Loop})
-    for i in eachindex(cont.inst)
-        inst = cont.inst[i]
-        cont.inst[i] = if inst isa Union{Block,Loop,If}
-            map!(f, inst)
-        else
-            f(inst)
-        end
-    end
-    cont
-end
-function Base.map!(f, if_::If)
-    map!(f, if_.trueinst, if_.trueinst)
-    map!(f, if_.falseinst, if_.falseinst)
-    if_
-end
-
-function Base.foreach(f, cont::Union{Func,Block,Loop})
-    for inst in cont.inst
-        if inst isa Union{Block,Loop,If}
-            foreach(f, inst)
-        else
-            f(inst)
-        end
-    end
-end
-function Base.foreach(f, if_::If)
-    for inst in if_.trueinst
-        if inst isa Union{Block,Loop,If}
-            foreach(f, inst)
-        else
-            f(inst)
-        end
-    end
-    for inst in if_.falseinst
-        if inst isa Union{Block,Loop,If}
-            foreach(f, inst)
-        else
-            f(inst)
-        end
-    end
-end

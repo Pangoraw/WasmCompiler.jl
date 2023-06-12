@@ -59,11 +59,33 @@
                     (field $hash i32)
                     (field $str (ref $jl-string-t)))))
     )
-    
+
     (type $jl-nothing-t
         (sub $jl-value-t
             (struct
                 (field $jl-value-type (ref $jl-datatype-t)))))
+    (type $jl-int32-t
+        (sub $jl-value-t
+             (struct
+                (field $jl-value-type (ref $jl-datatype-t))
+                (field $val i32))))
+    (global $jl-int32-type (export "jl_int32_type") (mut (ref null $jl-datatype-t)) (ref.null $jl-datatype-t))
+
+    (type $jl-int64-t
+        (sub $jl-value-t
+             (struct
+                (field $jl-value-type (ref $jl-datatype-t))
+                (field $val i64))))
+    (global $jl-int64-type (export "jl_in64_type") (mut (ref null $jl-datatype-t)) (ref.null $jl-datatype-t))
+
+    (func $jl-box-int32 (param i32) (result (ref $jl-int32-t))
+        (struct.new $jl-int32-t
+            (ref.as_non_null (global.get $jl-int32-type))
+            (local.get 0)))
+    (func $jl-box-int64 (param i64) (result (ref $jl-int64-t))
+        (struct.new $jl-int64-t
+            (ref.as_non_null (global.get $jl-int64-type))
+            (local.get 0)))
 
     (func $jl-typeof (param (ref $jl-value-t)) (result (ref null $jl-value-t))
         (struct.get $jl-value-t $jl-value-type

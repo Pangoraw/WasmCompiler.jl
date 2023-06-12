@@ -1,13 +1,3 @@
-import Core.Compiler: widenconst, PiNode, PhiNode, ReturnNode,
-    GotoIfNot, GotoNode, SSAValue, UpsilonNode, PhiCNode
-
-abstract type WasmType end
-
-struct FuncType <: WasmType
-    params::Vector{ValType}
-    results::Vector{ValType}
-end
-
 struct StructField
     type::ValType
     name::Union{Nothing,String}
@@ -121,11 +111,14 @@ mutable struct WModule
     imports::Vector{Import}
     exports::Vector{Export}
 end
+WModule() = WModule([], [], [], [], [], [], [], nothing, [], [])
 WModule(func::Func) = WModule(
         [], [func], [], [],
         [], [], [], nothing,
         [], [FuncExport(func.name::String, 1)],
     )
+
+export!(mod, name, index) = push!(mod.exports, FuncExport(mod, name, index))
 
 function towasm(io::IO, mod; opt=0, enable_gc=false, enable_reference_types=false)
     args = String[]
@@ -147,3 +140,47 @@ function towasm(mod; kwargs...)
     take!(io)
 end
 
+## Utilities
+
+function Base.map!(f, cont::Union{Func,Block,Loop})
+    for i in eachindex(cont.inst)
+        inst = cont.inst[i]
+        cont.inst[i] = if inst isa Union{Block,Loop,If}
+            map!(f, inst)
+        else
+            f(inst)
+        end
+    end
+    cont
+end
+function Base.map!(f, if_::If)
+    map!(f, if_.trueinst, if_.trueinst)
+    map!(f, if_.falseinst, if_.falseinst)
+    if_
+end
+
+function Base.foreach(f, cont::Union{Func,Block,Loop})
+    for inst in cont.inst
+        if inst isa Union{Block,Loop,If}
+            foreach(f, inst)
+        else
+            f(inst)
+        end
+    end
+end
+function Base.foreach(f, if_::If)
+    for inst in if_.trueinst
+        if inst isa Union{Block,Loop,If}
+            foreach(f, inst)
+        else
+            f(inst)
+        end
+    end
+    for inst in if_.falseinst
+        if inst isa Union{Block,Loop,If}
+            foreach(f, inst)
+        else
+            f(inst)
+        end
+    end
+end

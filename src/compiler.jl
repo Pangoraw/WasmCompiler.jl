@@ -1,3 +1,16 @@
+import Core.Compiler: widenconst, PiNode, PhiNode, ReturnNode,
+    GotoIfNot, GotoNode, SSAValue, UpsilonNode, PhiCNode
+
+struct CodegenContext
+    mod::WModule
+    type_dict::Dict
+    func_dict::Dict
+    optimize::Bool
+    debug::Bool
+end
+CodegenContext(module_=WModule([], [], [], [], [], [], [], nothing, [], []); debug=false, optimize=false) =
+    CodegenContext(module_, Dict(), Dict(), optimize, debug)
+
 struct Intrinsic
     int::Bool
     s32::Inst
@@ -49,7 +62,8 @@ function resolve_arg(inst, n)
         getfield(arg.mod, arg.name) : error("invalid call $inst")
 end
 
-function emit_codes(ir, nargs; debug=false)
+function emit_codes(ctx, ir, nargs)
+    (; debug) = ctx
     exprs = Vector{Inst}[]
 
     # TODO: handle first arg properly
@@ -102,12 +116,8 @@ function emit_codes(ir, nargs; debug=false)
     end
 
     function emit_val(val)
-        if val isa Core.Argument
-            # One indexing + Skip first arg
-            local_get(val.n - 2)
-        elseif val isa Core.SSAValue
-            loc = getlocal!(val)
-            local_get(loc)
+        if val isa Core.SSAValue || val isa Core.Argument
+            local_get(getlocal!(val))
         elseif val isa Int32 || val isa Bool
             i32_const(val)
         elseif val isa Int64
@@ -208,6 +218,26 @@ function emit_codes(ir, nargs; debug=false)
                         # pass
                     else
                         error("invalid trunc_int $inst")
+                    end
+                    push!(exprs[bidx], local_set(getlocal!(ssa)))
+                    continue
+                elseif f === Base.zext_int
+                    typ = resolve_arg(inst, 2)
+                    arg = inst.args[3]
+                    push!(exprs[bidx], emit_val(arg))
+                    argtype = jltype(arg)
+                    if typ == Int64
+                        if argtype == Int32 || argtype == Bool
+                            push!(exprs[bidx], i64_extend_i32_s())
+                        elseif argtype == UInt32
+                            push!(exprs[bidx], i64_extend_i32_u())
+                        else
+                            error("invalid zext_int $inst")
+                        end
+                    elseif typ == Int32
+                        # pass
+                    else
+                        error("invalid zext_int $inst")
                     end
                     push!(exprs[bidx], local_set(getlocal!(ssa)))
                     continue
@@ -356,8 +386,10 @@ function emit_codes(ir, nargs; debug=false)
                 for arg in inst.args[begin+2:end]
                     push!(exprs[bidx], emit_val(arg))
                 end
-                @warn "invoke is currently emulated" inst
-                push!(exprs[bidx], call(0))
+                mi = inst.args[1]
+                haskey(ctx.func_dict, mi.specTypes) || emit_func!(ctx, mi.specTypes)
+                funcidx = ctx.func_dict[mi.specTypes]
+                push!(exprs[bidx], call(funcidx - 1))
                 loc = getlocal!(ssa)
                 push!(exprs[bidx], local_set(loc))
             else
@@ -383,11 +415,17 @@ function emit_codes(ir, nargs; debug=false)
     exprs, locals
 end
 
-function emit_func(f, types; optimize=false, debug=false)
-    ir, rt = Base.code_ircode(f, types) |> only
+emit_func(f, types; optimize=false, debug=false) = emit_func!(CodegenContext(; optimize, debug), f, types)
+emit_func!(mod::WModule, f, types; kwargs...) = emit_func!(CodegenContext(mod; kwargs...), f, types)
+emit_func!(ctx, f, types) = emit_func!(ctx, Tuple{typeof(f), types.parameters...})
 
-    nargs = length(types.parameters)
-    exprs, locals = emit_codes(ir, nargs; debug)
+function emit_func!(ctx, types)
+    ir, rt = Base.code_ircode_by_type(types) |> only
+
+    ctx.func_dict[types] = length(ctx.func_dict) + 1
+
+    nargs = length(types.parameters) - 1
+    exprs, locals = emit_codes(ctx, ir, nargs)
 
     relooper = Relooper(exprs, ir)
 
@@ -401,7 +439,8 @@ function emit_func(f, types; optimize=false, debug=false)
         [valtype(rt)],
     )
 
-    name = replace(nameof(f) |> string, "#" => "_")
+    t = types.parameters[1]
+    name = replace(nameof(t.instance) |> string, "#" => "_")
     if startswith(name, "_")
         name = "jl" * name
     end
@@ -414,9 +453,13 @@ function emit_func(f, types; optimize=false, debug=false)
 
     # _printwasm(stdout, f)
 
-    if optimize
+    f = if ctx.optimize
         f |> make_tees! # |> remove_unused!
     else
         f
     end
+
+    pushfirst!(ctx.mod.funcs, f)
+
+    f
 end
