@@ -118,7 +118,7 @@ WModule(func::Func) = WModule(
         [], [FuncExport(func.name::String, 1)],
     )
 
-export!(mod, name, index) = push!(mod.exports, FuncExport(mod, name, index))
+export!(mod, name, index) = push!(mod.exports, FuncExport(name, index))
 
 function towasm(io::IO, mod; opt=0, enable_gc=false, enable_reference_types=false)
     args = String[]

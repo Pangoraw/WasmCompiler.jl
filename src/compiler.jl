@@ -59,7 +59,7 @@ function resolve_arg(inst, n)
     @assert Meta.isexpr(inst, :call)
     arg = inst.args[n]
     arg isa GlobalRef && isconst(arg) ?
-        getfield(arg.mod, arg.name) : error("invalid call $inst")
+        getfield(arg.mod, arg.name) : arg
 end
 
 function emit_codes(ctx, ir, nargs)
@@ -131,7 +131,7 @@ function emit_codes(ctx, ir, nargs)
         elseif isnothing(val)
             nop()
         else
-            error("invalid value $val @ $(typeof(val))")
+            throw(CompilationError(types, "invalid value $val @ $(typeof(val))"))
         end
     end
 
@@ -174,7 +174,7 @@ function emit_codes(ctx, ir, nargs)
                         push!(exprs[bidx], local_set(getlocal!(ssa)))
                         continue
                     else
-                        throw("unsupported sext_int $(inst)")
+                        throw(CompilationError(types, "unsupported sext_int $(inst) @ $(irtype(arg))"))
                     end
                 elseif f === Base.fpext
                     typ = resolve_arg(inst, 2)
@@ -186,7 +186,7 @@ function emit_codes(ctx, ir, nargs)
                     elseif typ == Float64 && argtype == f64
                         # pass
                     else
-                        error("invalid fpext $inst")
+                        throw(CompilationError(types, "invalid fpext $inst"))
                     end
                     push!(exprs[bidx], local_set(getlocal!(ssa)))
                     continue
@@ -203,7 +203,19 @@ function emit_codes(ctx, ir, nargs)
                     elseif typ == Float64 && argtype == i64
                         push!(exprs[bidx], f64_reinterpret_i64())
                     else
-                        error("invalid bitcast $inst (argtype = $argtype)")
+                        throw(CompilationError(types, "invalid bitcast $inst (argtype = $argtype)"))
+                    end
+                    push!(exprs[bidx], local_set(getlocal!(ssa)))
+                    continue
+                elseif f === Base.fptrunc
+                    typ = resolve_arg(inst, 2)
+                    arg = inst.args[3]
+                    push!(exprs[bidx], emit_val(arg))
+                    argtype = irtype(arg)
+                    if typ == Float32 && argtype == f64
+                        push!(exprs[bidx], f32_demote_f64())
+                    else
+                        throw(CompilationError(types, "unsupported fptrunc $inst"))
                     end
                     push!(exprs[bidx], local_set(getlocal!(ssa)))
                     continue
@@ -217,7 +229,7 @@ function emit_codes(ctx, ir, nargs)
                     elseif typ == Int32 && argtype == i32
                         # pass
                     else
-                        error("invalid trunc_int $inst")
+                        throw(CompilationError(types, "invalid trunc_int $inst"))
                     end
                     push!(exprs[bidx], local_set(getlocal!(ssa)))
                     continue
@@ -232,12 +244,12 @@ function emit_codes(ctx, ir, nargs)
                         elseif argtype == UInt32
                             push!(exprs[bidx], i64_extend_i32_u())
                         else
-                            error("invalid zext_int $inst")
+                            throw(CompilationError(types, "invalid zext_int $inst"))
                         end
                     elseif typ == Int32
                         # pass
                     else
-                        error("invalid zext_int $inst")
+                        throw(CompilationError(types, "invalid zext_int $inst"))
                     end
                     push!(exprs[bidx], local_set(getlocal!(ssa)))
                     continue
@@ -256,7 +268,7 @@ function emit_codes(ctx, ir, nargs)
                         elseif argtype == UInt64
                             push!(exprs[bidx], f32_convert_i64_u())
                         else
-                            error("unsupported conversion $inst")
+                            throw(CompilationError(types, "unsupported conversion $inst"))
                         end
                     elseif typ == Float64
                         if argtype == Int32
@@ -268,7 +280,7 @@ function emit_codes(ctx, ir, nargs)
                         elseif argtype == UInt64
                             push!(exprs[bidx], f64_convert_i64_u())
                         else
-                            error("unsupported conversion $inst")
+                            throw(CompilationError(types, "unsupported conversion $inst"))
                         end
                     end
                     push!(exprs[bidx], local_set(getlocal!(ssa)))
@@ -290,12 +302,13 @@ function emit_codes(ctx, ir, nargs)
                     elseif typ == Int64 || typ == UInt64
                         push!(exprs[bidx], i64_const(0), emit_val(arg), i64_sub())
                     else
-                        error("invalid neg_int $inst")
+                        throw(CompilationError(types, "invalid neg_int $inst"))
                     end
                     push!(exprs[bidx], local_set(getlocal!(ssa)))
                     continue
                 end
                 for arg in inst.args[begin+1:end]
+                    (arg isa DataType || arg isa GlobalRef) && error("invalid arg $inst") 
                     push!(exprs[bidx], emit_val(arg))
                 end
                 if haskey(INTRINSICS, f)
@@ -306,7 +319,7 @@ function emit_codes(ctx, ir, nargs)
                         elseif all(arg -> irtype(arg) == i64, inst.args[begin+1:end])
                             intr.s64
                         else
-                            error("unsupported call $inst")
+                            throw(CompilationError(types, "unsupported call $inst"))
                         end
                     else
                         if all(arg -> irtype(arg) == f32, inst.args[begin+1:end])
@@ -314,7 +327,7 @@ function emit_codes(ctx, ir, nargs)
                         elseif all(arg -> irtype(arg) == f64, inst.args[begin+1:end])
                             intr.s64
                         else
-                            error("unsupported call $inst")
+                            throw(CompilationError(types, "unsupported call $inst"))
                         end
                     end
                     push!(exprs[bidx], newinst)
@@ -327,7 +340,15 @@ function emit_codes(ctx, ir, nargs)
                     elseif typ == Int64 || typ == UInt64
                         push!(exprs[bidx], i64_const(-1), i64_xor())
                     else
-                        error("invalid not_int")
+                        throw(CompilationError(types, "invalid not_int"))
+                    end
+                elseif f === Base.muladd_float
+                    if all(arg -> irtype(arg) == f32, inst.args[begin+1:end])
+                        push!(exprs[bidx], f32_mul(), f32_add())
+                    elseif all(arg -> irtype(arg) == f64, inst.args[begin+1:end])
+                        push!(exprs[bidx], f64_mul(), f64_add())
+                    else
+                        throw(CompilationError(types, "invalid muladd_float"))
                     end
                 elseif f === Base.:(===)
                     if all(arg -> irtype(arg) == i32, inst.args[begin+1:end])
@@ -339,10 +360,10 @@ function emit_codes(ctx, ir, nargs)
                     elseif all(arg -> irtype(arg) == f64, inst.args[begin+1:end])
                         push!(exprs[bidx], f64_eq())
                     else
-                        error("invalid sub_int")
+                        throw(CompilationError(types, "invalid sub_int"))
                     end
                 else
-                    error("Cannot handle call to $f")
+                    throw(CompilationError(types, "Cannot handle call to $f"))
                 end
 
                 loc = getlocal!(ssa)
@@ -415,17 +436,35 @@ function emit_codes(ctx, ir, nargs)
     exprs, locals
 end
 
+struct CompilationError <: Exception
+    types
+    msg
+end
+
+Base.showerror(io::IO, err::CompilationError) = println(io, "compiling $(err.types): $(err.msg)")
+
 emit_func(f, types; optimize=false, debug=false) = emit_func!(CodegenContext(; optimize, debug), f, types)
 emit_func!(mod::WModule, f, types; kwargs...) = emit_func!(CodegenContext(mod; kwargs...), f, types)
 emit_func!(ctx, f, types) = emit_func!(ctx, Tuple{typeof(f), types.parameters...})
 
 function emit_func!(ctx, types)
-    ir, rt = Base.code_ircode_by_type(types) |> only
+    ircodes = Base.code_ircode_by_type(types)
+    if isempty(ircodes)
+        error("could not find methods for type $types")
+    elseif length(ircodes) >= 2
+        error("types $types is ambiguous")
+    end
+    ir, rt = ircodes |> only
 
     ctx.func_dict[types] = length(ctx.func_dict) + 1
 
     nargs = length(types.parameters) - 1
-    exprs, locals = emit_codes(ctx, ir, nargs)
+    exprs, locals = try
+        emit_codes(ctx, ir, nargs)
+    catch err
+        err isa CompilationError && rethrow()
+        throw(CompilationError(types, err))
+    end
 
     relooper = Relooper(exprs, ir)
 

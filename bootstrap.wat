@@ -64,6 +64,7 @@
         (sub $jl-value-t
             (struct
                 (field $jl-value-type (ref $jl-datatype-t)))))
+
     (type $jl-int32-t
         (sub $jl-value-t
              (struct
@@ -76,15 +77,37 @@
              (struct
                 (field $jl-value-type (ref $jl-datatype-t))
                 (field $val i64))))
-    (global $jl-int64-type (export "jl_in64_type") (mut (ref null $jl-datatype-t)) (ref.null $jl-datatype-t))
+    (global $jl-int64-type (export "jl_int64_type") (mut (ref null $jl-datatype-t)) (ref.null $jl-datatype-t))
 
-    (func $jl-box-int32 (param i32) (result (ref $jl-int32-t))
+    (type $jl-float32-t
+        (sub $jl-value-t
+             (struct
+                (field $jl-value-type (ref $jl-datatype-t))
+                (field $val f32))))
+    (global $jl-float32-type (export "jl_float32_type") (mut (ref null $jl-datatype-t)) (ref.null $jl-datatype-t))
+
+    (type $jl-float64-t
+        (sub $jl-value-t
+             (struct
+                (field $jl-value-type (ref $jl-datatype-t))
+                (field $val f64))))
+    (global $jl-float64-type (export "jl_float64_type") (mut (ref null $jl-datatype-t)) (ref.null $jl-datatype-t))
+
+    (func $jl-box-int32 (export "jl_box_int32") (param i32) (result (ref $jl-int32-t))
         (struct.new $jl-int32-t
             (ref.as_non_null (global.get $jl-int32-type))
             (local.get 0)))
-    (func $jl-box-int64 (param i64) (result (ref $jl-int64-t))
+    (func $jl-box-int64 (export "jl_box_int64") (param i64) (result (ref $jl-int64-t))
         (struct.new $jl-int64-t
             (ref.as_non_null (global.get $jl-int64-type))
+            (local.get 0)))
+    (func $jl-box-float32 (export "jl_box_float32") (param f32) (result (ref $jl-float32-t))
+        (struct.new $jl-float32-t
+            (ref.as_non_null (global.get $jl-float32-type))
+            (local.get 0)))
+    (func $jl-box-float64 (export "jl_box_float64") (param f64) (result (ref $jl-float64-t))
+        (struct.new $jl-float64-t
+            (ref.as_non_null (global.get $jl-float64-type))
             (local.get 0)))
 
     (func $jl-typeof (param (ref $jl-value-t)) (result (ref null $jl-value-t))
@@ -149,7 +172,7 @@
                 (i32.const 0x62)))
 
         (global.set $jl-any-type
-            (call $jl-new-abstracttype
+            (call $jl-new-datatype
                 (call $jl-symbol (string.const "Any"))
                 (i32.const 507456893)
                 (i32.const 0x60)))
@@ -185,13 +208,13 @@
                 (call $jl-symbol (string.const "Symbol"))))
 
         (global.set $jl-simplevector-type
-            (call $jl-new-abstracttype
+            (call $jl-new-datatype
                 (call $jl-symbol (string.const "SimpleVector"))
                 (i32.const -72802639)
                 (i32.const 0x62)))
 
         (global.set $jl-type-type
-            (call $jl-new-abstracttype
+            (call $jl-new-datatype
                 (call $jl-symbol (string.const "Type"))
                 (i32.const 2039908602)
                 (i32.const 0x21)))
@@ -218,13 +241,13 @@
             (global.get $jl-type-type))
 
         (global.set $jl-string-type
-            (call $jl-new-abstracttype
+            (call $jl-new-datatype
                 (call $jl-symbol (string.const "String"))
                 (i32.const -308267535)
                 (i32.const 0x62)))
 
         (global.set $jl-nothing-type
-            (call $jl-new-abstracttype
+            (call $jl-new-datatype
                 (call $jl-symbol (string.const "Nothing"))
                 (i32.const -244432227)
                 (i32.const 0x6a)))
@@ -234,11 +257,35 @@
         (struct.set $jl-datatype-t $instance
             (global.get $jl-nothing-type)
             (global.get $jl-nothing))
+
+        (global.set $jl-int32-type
+            (call $jl-new-datatype
+                (call $jl-symbol (string.const "Int32"))
+                (i32.const -536228166)
+                (i32.const 0xea)))
+
+        (global.set $jl-int64-type
+            (call $jl-new-datatype
+                (call $jl-symbol (string.const "Int64"))
+                (i32.const 121901828)
+                (i32.const 0xea)))
+
+        (global.set $jl-float32-type
+            (call $jl-new-datatype
+                (call $jl-symbol (string.const "Float32"))
+                (i32.const 1799353626)
+                (i32.const 0xea)))
+
+        (global.set $jl-float64-type
+            (call $jl-new-datatype
+                (call $jl-symbol (string.const "Float64"))
+                (i32.const 1462090786)
+                (i32.const 0xea)))
     )
 
     (start $init)
 
-    (func $jl-new-abstracttype
+    (func $jl-new-datatype
             (param $name (ref $jl-symbol-t))
             (param $hash i32)
             (param $flags i32)
@@ -305,22 +352,27 @@
     ;; An example of single dispatch using Wasm GC casts.
     (func $jl-repr (param (ref $jl-value-t))
         (block 
-            (block $nothing
-                (block $sym
-                    (block $datatype
-                        (br_if $sym (ref.test $jl-symbol-t (local.get 0)))
-                        (br_if $datatype (ref.test $jl-datatype-t (local.get 0)))
-                        (br_if $nothing (ref.test $jl-nothing-t (local.get 0)))
-                        (unreachable))
-                    (call $jl-repr-type (ref.cast $jl-datatype-t (local.get 0)))
+            (block $i32
+                (block $nothing
+                    (block $sym
+                        (block $datatype
+                            (br_if $sym (ref.test $jl-symbol-t (local.get 0)))
+                            (br_if $datatype (ref.test $jl-datatype-t (local.get 0)))
+                            (br_if $nothing (ref.test $jl-nothing-t (local.get 0)))
+                            (br_if $i32 (ref.test $jl-int32-t (local.get 0)))
+                            (unreachable))
+                        (call $jl-repr-type (ref.cast $jl-datatype-t (local.get 0)))
+                        (return))
+                    (call $log
+                        (struct.get $jl-string-t $str ;; ref string
+                            (struct.get $jl-symbol-t $str ;; jl-string-t
+                                (ref.cast $jl-symbol-t (local.get 0)))))
                     (return))
-                (call $log
-                    (struct.get $jl-string-t $str ;; ref string
-                        (struct.get $jl-symbol-t $str ;; jl-string-t
-                            (ref.cast $jl-symbol-t (local.get 0)))))
+                (call $log (string.const "nothing"))
                 (return))
-            (call $log (string.const "nothing"))
+            (call $log (string.const "42"))
             (return)))
+
     (export "jl_repr" (func $jl-repr))
 
     (func $jl-sveclen (param (ref null $jl-simplevector-t)) (result i32)

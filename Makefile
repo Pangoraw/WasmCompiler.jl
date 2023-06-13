@@ -1,15 +1,18 @@
 #wasm-as --enable-gc --enable-strings --enable-tail-call --enable-reference-types --enable-bulk-memory bootstrap.wat -o bootstrap.wasm
 
-BINARYEN_FEATURES=--enable-gc --enable-strings
+BINARYEN_FEATURES=--enable-gc --enable-strings --enable-exception-handling
 WASM_AS=wasm-as $(BINARYEN_FEATURES) --enable-reference-types
+WASM_MERGE=wasm-merge $(BINARYEN_FEATURES) --enable-reference-types
 WAT_DESUGAR=wat-desugar $(BINARYEN_FEATURES)
 
 bootstrap.wasm: bootstrap.wat
-	$(WASM_AS) -g -v web -o $@ bootstrap.wat
+	$(WASM_AS) -g -o $@ $<
 
-test.wasm: test.wat
-	$(WAT_DESUGAR) -f -o test.sexpr.wast $<
-	$(WASM_AS) -g -v web -o $@ test.sexpr.wast
+runtime.wasm: runtime.wat
+	$(WASM_AS) -g -o $@ $<
+
+merge.wasm: bootstrap.wasm runtime.wasm
+	$(WASM_MERGE) bootstrap.wasm bootstrap runtime.wasm runtime -o $@
 
 clean:
-	rm bootstrap.wasm
+	rm bootstrap.wasm runtime.wasm merge.wasm

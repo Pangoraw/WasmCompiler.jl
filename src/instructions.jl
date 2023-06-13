@@ -170,6 +170,7 @@ struct f64_convert_i32_s <: Inst end
 struct f64_convert_i32_u <: Inst end
 
 struct i32_wrap_i64 <: Inst end
+struct f32_demote_f64 <: Inst end
 
 struct drop <: Inst end
 struct select <: Inst
@@ -190,6 +191,7 @@ struct br_table <: Inst
     default::Index
 end
 struct br_on_cast <: Inst
+    label::Index
     inputtype::Index
     casttype::Index
 end

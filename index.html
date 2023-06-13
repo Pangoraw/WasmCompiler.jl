@@ -5,7 +5,7 @@
     <script type="module">
         const output = document.getElementById("output")
 
-        const bytecode = fetch("./bootstrap.wasm")
+        const bytecode = fetch("./merge.wasm")
         const { module, instance } = await WebAssembly.instantiateStreaming(bytecode, {
             console: {
                 log: (msg) => {
@@ -21,10 +21,13 @@
 
         for (let [k, v] of Object.entries(rest)) {
             if (v.value !== undefined) {
-                console.log(k, v)
+                if (v.value === null) continue
+                console.log(k, v.value)
                 jl_repr(v.value)
             }
         }
+
+        window.exports = exports;
 
         // let ref = instance.exports.makeRef(1, 2)
     </script>

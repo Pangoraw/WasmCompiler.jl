@@ -1,5 +1,6 @@
 import WasmCompiler as WC
 import Wasmtime
+import Wasmtime: WasmEngine, WasmStore, WasmModule, WasmInstance
 using Test
 
 @testset "add" begin
@@ -17,10 +18,10 @@ using Test
     wat = sprint(WC._printwasm, mod)
     wasm = Wasmtime.wat2wasm(wat)
 
-    engine = Wasmtime.WasmEngine()
-    store = Wasmtime.WasmStore(engine)
-    wmodule = Wasmtime.WasmModule(store, wasm)
-    instance = Wasmtime.WasmInstance(store, wmodule)
+    engine = WasmEngine()
+    store = WasmStore(engine)
+    wmodule = WasmModule(store, wasm)
+    instance = WasmInstance(store, wmodule)
 
     wadd = Wasmtime.exports(instance).add
 
@@ -46,10 +47,10 @@ end
     wat = sprint(WC._printwasm, mod)
     wasm = Wasmtime.wat2wasm(wat)
 
-    engine = Wasmtime.WasmEngine()
-    store = Wasmtime.WasmStore(engine)
-    wmodule = Wasmtime.WasmModule(store, wasm)
-    instance = Wasmtime.WasmInstance(store, wmodule)
+    engine = WasmEngine()
+    store = WasmStore(engine)
+    wmodule = WasmModule(store, wasm)
+    instance = WasmInstance(store, wmodule)
 
     wfunc = Wasmtime.exports(instance).func
 
@@ -86,10 +87,10 @@ fac(n) = iszero(n) ? one(n) : fac(n-one(n)) * n
     wat = sprint(WC._printwasm, mod)
     wasm = Wasmtime.wat2wasm(wat)
 
-    engine = Wasmtime.WasmEngine()
-    store = Wasmtime.WasmStore(engine)
-    wmodule = Wasmtime.WasmModule(store, wasm)
-    instance = Wasmtime.WasmInstance(store, wmodule)
+    engine = WasmEngine()
+    store = WasmStore(engine)
+    wmodule = WasmModule(store, wasm)
+    instance = WasmInstance(store, wmodule)
 
     wfac = Wasmtime.exports(instance).fac
 
@@ -101,11 +102,11 @@ end
 @noinline g(a, b) = a < 1 ? f(a, b) : b
 f(a, b) = g(a - 1, b)
 
-@testset "mutually recursive functions" begin
+@testset "Mutually recursive functions" begin
     mod = WC.WModule()
 
-    f = WC.emit_func!(mod, fac, Tuple{Int32,Int32}; optimize=true)
-    export!(mod, "f", findfirst(f -> f.name == "f", mod.funcs))
+    WC.emit_func!(mod, f, Tuple{Int32,Int32}; optimize=true)
+    WC.export!(mod, "f", findfirst(f -> f.name == "f", mod.funcs))
 
     wat = sprint(WC._printwasm, mod)
     wasm = Wasmtime.wat2wasm(wat)
@@ -117,6 +118,6 @@ f(a, b) = g(a - 1, b)
 
     wf = Wasmtime.exports(instance).f
 
-    x = Int32(10)
-    @test f(x) == wf(x)
+    x, y = Int32(10), Int32(42)
+    @test f(x, y) == convert(Int32, wf(x, y) |> only)
 end
