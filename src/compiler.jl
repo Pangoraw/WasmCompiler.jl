@@ -1,15 +1,76 @@
 import Core.Compiler: widenconst, PiNode, PhiNode, ReturnNode,
     GotoIfNot, GotoNode, SSAValue, UpsilonNode, PhiCNode
 
+"""
+    RuntimeModule()::WModule
+
+Returns a `WModule` which can be merged with `bootstrap.wat` using `wasm-merge`.
+"""
+RuntimeModule() =
+    WModule([
+        RecursiveZone([
+            StructType("jl-value-t", nothing, [
+                StructField(StructRef(true, 2), "jl-value-type", false),
+            ]),
+            StructType("jl-datatype-t", 1, [
+                StructField(StructRef(true, 2), "jl-value-type", false),
+                StructField(StructRef(true, 3), "name", true),
+                StructField(StructRef(true, 2), "super", true),
+            ]),
+            StructType("jl-typename-t", 1, [
+                StructField(StructRef(true, 2), "jl-value-type", false),
+                StructField(StructRef(false, 6), "name", false),
+            ]),
+            StructType("jl-string-t", 1, [
+                StructField(StructRef(true, 2), "jl-value-type", false),
+                StructField(StringRef(), "str", false),
+            ]),
+            ArrayType("jl-values-t", true, jl_value_t),
+            StructType("jl-simplevector-t", 1, [
+                StructField(StructRef(true, 2), "jl-value-type", false),
+                StructField(ArrayRef(false, 5), "values", false),
+            ]),
+            StructType("jl-symbol-t", 1, [
+                StructField(StructRef(true, 2), "jl-value-type", false),
+                StructField(i32, "hash", false),
+                StructField(StructRef(false, 3), "str", false),
+            ])
+        ]),
+        # <-- new structs go here
+       ], [Func("jl_init", FuncType([], []), [], [])], [], [], [], [], [], 2, [
+        FuncImport("bootstrap", "jl_box_int32", "jl-box-int32", FuncType([i32], [StructRef(false, 1)])),
+        FuncImport("bootstrap", "jl_new_datatype", "jl-new-datatype", FuncType([StructRef(false, 6), i32, i32], [StructRef(false, 2)])),
+    ], [])
+
 struct CodegenContext
     mod::WModule
     type_dict::Dict
     func_dict::Dict
+    datatype_dict::Dict
     optimize::Bool
     debug::Bool
 end
-CodegenContext(module_=WModule([], [], [], [], [], [], [], nothing, [], []); debug=false, optimize=false) =
-    CodegenContext(module_, Dict(), Dict(), optimize, debug)
+CodegenContext(module_=RuntimeModule(); debug=false, optimize=false) =
+    CodegenContext(module_, Dict(), Dict(), Dict(), optimize, debug)
+
+function emit_datatype!(ctx, @nospecialize(typ))
+    haskey(ctx.datatype_dict, typ) && return ctx.datatype_dict[typ]
+    push!(ctx.mod.globals, Global(string(nameof(typ)), GlobalType(true, StructRef(true, 1)), [ref_null(1)]))
+    initidx = findfirst(f -> f.name == "jl_init", ctx.mod.funcs)
+    @assert !isnothing(initidx)
+    init = ctx.mod.funcs[initidx]
+    global_idx = length(ctx.mod.globals)
+    push!(
+        init.inst,
+        string_const(string(nameof(typ))),
+        call(11),
+        i32_const(typ.hash),
+        i32_const(typ.flags),
+        call(10),
+        global_set(global_idx - 1),
+    )
+    return global_idx
+end
 
 struct Intrinsic
     int::Bool
@@ -35,9 +96,9 @@ const INTRINSICS = Dict(
     Base.or_int => Intrinsic(true, i32_or(), i64_or()),
     Base.xor_int => Intrinsic(true, i32_xor(), i64_xor()),
     # TODO: sh fns needs special handling as you can specify the shift with a different type
-    Base.lshr_int => Intrinsic(true, i32_shr_u(), i64_shr_u()),
-    Base.ashr_int => Intrinsic(true, i32_shr_s(), i64_shr_s()),
-    Base.shl_int => Intrinsic(true, i32_shl(), i64_shl()),
+    # Base.lshr_int => Intrinsic(true, i32_shr_u(), i64_shr_u()),
+    # Base.ashr_int => Intrinsic(true, i32_shr_s(), i64_shr_s()),
+    # Base.shl_int => Intrinsic(true, i32_shl(), i64_shl()),
     Base.mul_float => Intrinsic(false, f32_mul(), f64_mul()),
     Base.add_float => Intrinsic(false, f32_add(), f64_add()),
     Base.sub_float => Intrinsic(false, f32_sub(), f64_sub()),
@@ -55,6 +116,20 @@ const INTRINSICS = Dict(
     Base.rint_llvm => Intrinsic(false, f32_nearest(), f64_nearest()),
 )
 
+function struct_idx!(ctx, @nospecialize(typ))
+    isconcretetype(typ) || return 1
+    get!(ctx.type_dict, typ) do
+        @assert isconcretetype(typ) typ
+        mut = ismutabletype(typ)
+        push!(ctx.mod.types, StructType(string(nameof(typ)), 1,
+          append!([StructField(StructRef(false, 2), "jl-value-type", false)], [
+            StructField(valtype(FT), string(FN), mut)
+            for (FT, FN) in zip(fieldtypes(typ), fieldnames(typ))
+        ])))
+        num_types(ctx.mod)
+    end
+end
+
 function resolve_arg(inst, n)
     @assert Meta.isexpr(inst, :call)
     arg = inst.args[n]
@@ -62,13 +137,19 @@ function resolve_arg(inst, n)
         getfield(arg.mod, arg.name) : arg
 end
 
+const jl_value_t = StructRef(false, 1)
+
+const Numeric = Union{Int32,UInt32,Int64,UInt64,Bool,Float32,Float64}
+
 function emit_codes(ctx, ir, nargs)
     (; debug) = ctx
     exprs = Vector{Inst}[]
 
+    types = Tuple{map(widenconst, ir.argtypes[begin:nargs+1])...}
+
     # TODO: handle first arg properly
     locals = ValType[
-        valtype(argtype)
+        argtype <: Numeric ? valtype(argtype) : StructRef(false, struct_idx!(ctx, argtype))
         for argtype in ir.argtypes[begin+1:begin+nargs]
     ]
 
@@ -79,7 +160,11 @@ function emit_codes(ctx, ir, nargs)
         val isa SSAValue || error("invalid value $val")
         loc = ssa_to_local[val.id]
         if loc == -1
-            push!(locals, irtype(val))
+            local_type = irtype(val)
+            if local_type isa StructRef
+                @warn "got structref" val
+            end
+            push!(locals, local_type)
             loc = ssa_to_local[val.id] = length(locals) - 1
         end
         loc
@@ -97,7 +182,10 @@ function emit_codes(ctx, ir, nargs)
         end
     end
 
-    irtype(val) = valtype(jltype(val))
+    function irtype(val)
+        typ = jltype(val)
+        typ <: Numeric ? valtype(typ) : jl_value_t
+    end
 
     function emit_boxed(typ) # from valtype(typ) -> (ref $jl-value-t)
         if typ == Int32
@@ -130,6 +218,8 @@ function emit_codes(ctx, ir, nargs)
             string_const(val)
         elseif isnothing(val)
             nop()
+        elseif val isa GlobalRef && isconst(val)
+            emit_val(getproperty(val.mod, val.name))
         else
             throw(CompilationError(types, "invalid value $val @ $(typeof(val))"))
         end
@@ -194,7 +284,10 @@ function emit_codes(ctx, ir, nargs)
                     typ = resolve_arg(inst, 2)
                     arg = inst.args[3]
                     argtype = irtype(arg)
-                    if typ == Int32 && argtype == f32
+                    push!(exprs[bidx], emit_val(arg))
+                    if valtype(typ) == argtype
+                        # pass
+                    elseif typ == Int32 && argtype == f32
                         push!(exprs[bidx], i32_reinterpret_f32())
                     elseif typ == Int64 && argtype == f64
                         push!(exprs[bidx], i64_reinterpret_f64())
@@ -253,6 +346,32 @@ function emit_codes(ctx, ir, nargs)
                     end
                     push!(exprs[bidx], local_set(getlocal!(ssa)))
                     continue
+                elseif f === Base.fptosi
+                    typ = resolve_arg(inst, 2)
+                    arg = inst.args[3]
+                    push!(exprs[bidx], emit_val(arg))
+                    argtype = jltype(arg)
+                    if typ == Int32
+                        if argtype == Float32
+                            push!(exprs[bidx], i32_trunc_f32_s())
+                        elseif argtype == Float64
+                            push!(exprs[bidx], i32_trunc_f64_s())
+                        else
+                            throw(CompilationError(types, "invalid fptosi $inst"))
+                        end
+                    elseif typ == Int64
+                        if argtype == Float32
+                            push!(exprs[bidx], i64_trunc_f32_s())
+                        elseif argtype == Float64
+                            push!(exprs[bidx], i64_trunc_f64_s())
+                        else
+                            throw(CompilationError(types, "invalid fptosi $inst"))
+                        end
+                    else
+                        throw(CompilationError(types, "invalid fptosi $inst"))
+                    end
+                    push!(exprs[bidx], local_set(getlocal!(ssa)))
+                    continue
                 elseif f === Base.sitofp
                     typ = resolve_arg(inst, 2)
                     arg = inst.args[3]
@@ -306,9 +425,31 @@ function emit_codes(ctx, ir, nargs)
                     end
                     push!(exprs[bidx], local_set(getlocal!(ssa)))
                     continue
+                elseif f === Base.getfield
+                    field = inst.args[3]
+                    (field isa QuoteNode && field.value isa Symbol) || throw(CompilationError(types, "invalid getfield $inst"))
+                    field = field.value
+                    argtype = irtype(inst.args[2])
+                    typ = jltype(inst.args[2])
+                    fieldidx = findfirst(==(field), fieldnames(typ))
+                    structidx = struct_idx!(ctx, typ) - 1
+                    push!(
+                        exprs[bidx],
+                        emit_val(inst.args[2]),
+                        ref_cast(structidx),
+                        struct_get(structidx, fieldidx),
+                        local_set(getlocal!(ssa)),
+                    )
+                    continue
                 end
                 for arg in inst.args[begin+1:end]
-                    (arg isa DataType || arg isa GlobalRef) && error("invalid arg $inst") 
+                    if arg isa DataType
+                        push!(exprs[bidx], global_get(emit_datatype!(ctx, arg) - 1))
+                        continue
+                    end
+
+                    (arg isa DataType || arg isa GlobalRef) &&
+                        throw(CompilationError(types, "invalid arg $inst"))
                     push!(exprs[bidx], emit_val(arg))
                 end
                 if haskey(INTRINSICS, f)
@@ -362,8 +503,36 @@ function emit_codes(ctx, ir, nargs)
                     else
                         throw(CompilationError(types, "invalid sub_int"))
                     end
+                elseif f === Base.ashr_int || f === Base.lshr_int
+                    argtype = irtype(inst.args[2])
+                    if argtype == i32
+                        offtype = irtype(inst.args[3])
+                        if offtype == i64
+                            push!(exprs[bidx], i32_wrap_i64())
+                        end
+                        push!(exprs[bidx], f === Base.ashr_int ? i32_shr_s() : i32_shr_u())
+                    elseif argtype == i64
+                        push!(exprs[bidx], f === Base.ashr_int ? i64_shr_s() : i64_shr_u())
+                    else
+                        throw(CompilationError(types, "invalid shl_int $inst"))
+                    end
+                elseif f === Base.shl_int
+                    argtype = irtype(inst.args[2])
+                    if argtype == i32
+                        offtype = irtype(inst.args[3])
+                        if offtype == i64
+                            push!(exprs[bidx], i32_wrap_i64())
+                        end
+                        push!(exprs[bidx], i32_shl())
+                    elseif argtype == i64
+                        push!(exprs[bidx], i64_shl())
+                    else
+                        throw(CompilationError(types, "invalid shl_int $inst"))
+                    end
+                # elseif f === Base.isa
+                #     push!(exprs[bidx], drop(), drop(), i32_const(1))
                 else
-                    throw(CompilationError(types, "Cannot handle call to $f"))
+                    throw(CompilationError(types, "Cannot handle call to $f @ $inst"))
                 end
 
                 loc = getlocal!(ssa)
@@ -413,6 +582,16 @@ function emit_codes(ctx, ir, nargs)
                 push!(exprs[bidx], call(funcidx - 1))
                 loc = getlocal!(ssa)
                 push!(exprs[bidx], local_set(loc))
+            elseif Meta.isexpr(inst, :new)
+                for arg in inst.args[begin+1:end]
+                    push!(exprs[bidx], emit_val(arg))
+                end
+                push!(
+                    exprs[bidx],
+                    struct_new(1), # $jl-XXX
+                    ref_cast(0), # $jl-value-t
+                    local_set(getlocal!(ssa)),
+                )
             else
                 @warn "Unhandled instruction" inst typeof(inst)
             end
@@ -441,7 +620,11 @@ struct CompilationError <: Exception
     msg
 end
 
-Base.showerror(io::IO, err::CompilationError) = println(io, "compiling $(err.types): $(err.msg)")
+function Base.showerror(io::IO, err::CompilationError)
+    println(io, "compiling ")
+    Base.show_tuple_as_call(io, :f, err.types)
+    print(io, ": ", err.msg)
+end
 
 emit_func(f, types; optimize=false, debug=false) = emit_func!(CodegenContext(; optimize, debug), f, types)
 emit_func!(mod::WModule, f, types; kwargs...) = emit_func!(CodegenContext(mod; kwargs...), f, types)
@@ -475,7 +658,7 @@ function emit_func!(ctx, types)
 
     functype = FuncType(
         locals[begin:nargs],
-        [valtype(rt)],
+        [rt <: Numeric ? valtype(rt) : StructRef(false, struct_idx!(ctx, rt))],
     )
 
     t = types.parameters[1]

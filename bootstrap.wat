@@ -41,7 +41,7 @@
 
         (type $jl-string-t
             (sub $jl-value-t
-                (struct 
+                (struct
                     (field $jl-value-type (ref null $jl-datatype-t))
                     (field $str (ref string)))))
 

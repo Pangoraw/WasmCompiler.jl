@@ -9,7 +9,8 @@ function _printwasm(io::IO, mod::WModule)
 
     for type in mod.types
         if type isa StructType
-            _printwasm(io, type)
+            ctx = IOContext(io, :indent => indent, :mod => mod)
+            _printwasm(ctx, type)
         elseif type isa RecursiveZone
             print(io, INDENT_S^indent, "(")
             _printkw(io, "rec"); println(io)
@@ -22,6 +23,8 @@ function _printwasm(io::IO, mod::WModule)
             error("don't know how to export $type")
         end
     end
+
+    println(io)
 
     ctx = IOContext(io, :indent => indent, :mod => mod)
     for func in mod.funcs
@@ -41,17 +44,35 @@ function _printwasm(io::IO, mod::WModule)
             print(io, mod.start - 1)
         end
         println(io, ")")
+        println(io)
     end
 
+    ctx = IOContext(io, :mod => mod, :ctx => indent + INDENT_INC)
+    for global_ in mod.globals
+        print(io, INDENT_S^indent, "(")
+        _printkw(io, "global")
+        print(io, ' ')
+        !isnothing(global_.name) && (print_sigil(io, global_.name); print(io, ' '))
+        global_.type.mut && (print(io, '('); _printkw(io, "mut"); print(io, ' '))
+        _printwasm(io, global_.type.type)
+        global_.type.mut && print(io, ')')
+        print(io, " (")
+        _printwasm(ctx, global_.init)
+        print(io, "))")
+    end
+
+    ctx = IOContext(io, :mod => mod)
     for imp in mod.imports
         print(io, INDENT_S^indent, "(")
         _printkw(io, "import")
-        print(io, " \"$(imp.module_name)\" \"$(imp.name)\"")
+        print(io, " \"$(imp.module_name)\" \"$(imp.name)\" ")
         if imp isa FuncImport
             print(io, "(")
             _printkw(io, "func")
+            print(io, ' ')
             print_sigil(io, imp.id)
-            _printwasm(io, imp.fntype)
+            !isnothing(imp.id) && print(io, ' ')
+            _printwasm(ctx, imp.fntype)
             print(io, ")")
         else
             error("cannot handle import $imp")
@@ -89,6 +110,18 @@ function print_sigil(io::IO, sigil)
       print(io, '$', sigil)
 end
 
+function _find_type(mod::WModule, typeidx)
+    s = 0
+    for type in Iterators.flatten(
+        Iterators.map(t -> t isa RecursiveZone ? t.structs : (t,), mod.types))
+
+        s += 1
+
+        s == typeidx && return type
+    end
+    return nothing
+end
+
 function print_typeidx(io::IO, typeidx)
     mod = get(io, :mod, nothing)
 
@@ -97,22 +130,16 @@ function print_typeidx(io::IO, typeidx)
         return
     end
 
-    s = 0
-    for type in Iterators.flatten(
-        Iterators.map(t -> t isa RecursiveZone ? t.structs : (t,), mod.types))
+    type = _find_type(mod, typeidx)
 
-        s += 1
-
-        if s == typeidx
-            type isa StructType || error("don't know how to print $type")
-            if isnothing(type.name)
-                print(io, typeidx - 1)
-            else
-                print_sigil(io, type.name)
-            end
-            return
-        end
+    if isnothing(type) || isnothing(type.name)
+        print(io, typeidx - 1)
+    elseif type isa GCType
+        print_sigil(io, type.name)
+    else
+        error("dont know how to print type $type")
     end
+    return
 end
 
 function print_funcidx(io::IO, funcidx)
@@ -131,6 +158,27 @@ function print_funcidx(io::IO, funcidx)
     print_sigil(io, func.name)
 end
 
+function _printwasm(io::IO, arraytype::ArrayType)
+    indent = get(io, :indent, 0)
+    print(io, INDENT_S^indent, "(")
+    _printkw(io, "type")
+    !isnothing(arraytype.name) && (print(io, ' '); print_sigil(io, arraytype.name))
+    print(io, " (")
+    _printkw(io, "array")
+    print(io, ' ')
+
+    if arraytype.mut
+        print(io, "(")
+        _printkw(io, "mut")
+        print(io, ' ')
+    end
+
+    _printwasm(io, arraytype.content)
+
+    arraytype.mut && print(io, ')')
+    println(io, "))")
+end
+
 function _printwasm(io::IO, structtype::StructType)
     indent = get(io, :indent, 0)
     print(io, INDENT_S^indent, "(")
@@ -142,6 +190,15 @@ function _printwasm(io::IO, structtype::StructType)
     print(io, INDENT_S^indent, "("); _printkw(io, "struct")
     indent += INDENT_INC
 
+    if !isnothing(structtype.subidx)
+        println(io)
+        print(io, INDENT_S^indent, "(")
+        _printkw(io, "sub")
+        print(io, ' ')
+        print_typeidx(io, structtype.subidx)
+        indent += INDENT_INC
+    end
+
     for field in structtype.fields
         println(io)
         print(io, INDENT_S^indent, "("); _printkw(io, "field ")
@@ -152,11 +209,14 @@ function _printwasm(io::IO, structtype::StructType)
         print(io, ")")
     end
 
+    !isnothing(structtype.subidx) && print(io, ')')
+
     print(io, "))")
     println(io)
 end
 
 _printwasm(io::IO, val::ValType) = show(io, val)
+_printwasm(io::IO, ::StringRef) = (print(io, '('); _printkw(io, "ref"); print(io, " "); _printkw(io, "string"))
 function _printwasm(io::IO, ref::StructRef)
     print(io, "(")
     _printkw(io, "ref"); print(io, " ")
@@ -166,11 +226,10 @@ function _printwasm(io::IO, ref::StructRef)
 end
 function _printwasm(io::IO, arr::ArrayRef)
     print(io, "(")
-    _printkw(io, "array")
+    _printkw(io, "ref")
     print(io, " ")
-    arr.mut && (print(io, "("); _printkw(io, "mut"); print(io, " "))
-    _printwasm(io, arr.content)
-    arr.mut && print(io, ")")
+    arr.null && (_printkw(io, "null"); print(io, ' '))
+    print_typeidx(io, arr.typeidx)
     print(io, ")")
 end
 
@@ -210,7 +269,6 @@ function _printwasm(io::IO, fntype::FuncType)
             print(io, ") ")
         end
     end
-    println(io)
 end
 
 _printkw(io::IO, kw) = get(io, :color, false) ?  printstyled(io, kw; color=:red) : print(io, kw)
@@ -226,13 +284,35 @@ _printwasm(io::IO, rt::rethrow_) = (_printinst(io, "rethrow"); print(io, " ", rt
 _printwasm(io::IO, s::string_const) = (_printinst(io, "string.const"); print(io, " \"", s.contents, "\""))
 _printwasm(io::IO, c::call) = (_printinst(io, "call"); print(io, ' '); print_funcidx(io, c.func + 1))
 
+_printwasm(io::IO, r::ref_cast) = (_printinst(io, "ref.cast"); print(io, ' '); print_typeidx(io, r.typeidx + 1))
+_printwasm(io::IO, sn::struct_new) = (_printinst(io, "struct.new"); print(io, ' '); print_typeidx(io, sn.typeidx + 1))
+function _printwasm(io::IO, sg::struct_get)
+    _printinst(io, "struct.get")
+    print(io, ' ')
+    print_typeidx(io, sg.typeidx + 1)
+    print(io, ' ')
+    mod = get(io, :mod, nothing)
+    if isnothing(mod)
+        print(io, sg.fieldidx)
+        return
+    end
+    typ = _find_type(mod, sg.typeidx + 1)
+    field = typ.fields[sg.fieldidx + 1]
+    if isnothing(field.name)
+        print(io, sg.fieldidx)
+    else
+        print_sigil(io, field.name)
+    end
+end
+
 function _printwasm(io::IO, inst::Inst)
     prefixes = ("i32", "i64", "f32", "f64", "ref", "struct", "string")
 
     name = string(nameof(typeof(inst)))
     prefidx = findfirst(t -> startswith(name, string(t) * '_'), prefixes)
     name = if !isnothing(prefidx)
-        name[begin:begin+length(prefixes[prefidx])-1] * '.' * name[begin+4:end]
+        offset = length(prefixes[prefidx])-1
+        name[begin:begin+offset] * '.' * name[begin+offset+2:end]
     elseif startswith(name, "br_")
         name
     else
@@ -256,6 +336,7 @@ function _printwasm(io::IO, f::Func)
         print(io, ' ')
     end
     _printwasm(io, f.fntype)
+    println(io)
     compact = get(io, :compact, true)
     if compact
         if length(f.locals) > length(f.fntype.params)
@@ -278,6 +359,7 @@ function _printwasm(io::IO, f::Func)
     end
     ctx = IOContext(io, :indent => indent + INDENT_INC)
     _printwasm(ctx, f.inst)
+    println(io)
     print(io, INDENT_S^indent, ")")
 end
 
@@ -289,6 +371,7 @@ function _printwasm(io::IO, loop::Loop)
     _printwasm(io, loop.fntype)
     ctx = IOContext(io, :indent => indent + INDENT_INC)
     _printwasm(ctx, loop.inst)
+    println(io)
     print(io, INDENT_S^indent)
     _printkw(io, "end")
 end
@@ -299,12 +382,15 @@ function _printwasm(io::IO, i::If)
     _printkw(io, "if")
     print(io, " ")
     _printwasm(io, i.fntype)
+    println(io)
     ctx = IOContext(io, :indent => indent + INDENT_INC)
     _printwasm(ctx, i.trueinst)
+    println(io)
     print(io, INDENT_S^indent)
     _printkw(io, "else")
     println(io)
     _printwasm(ctx, i.falseinst)
+    println(io)
     print(io, INDENT_S^indent)
     _printkw(io, "end")
 end
@@ -315,6 +401,7 @@ function _printwasm(io::IO, try_::Try)
     _printkw(io, "try")
     println(io)
     _printwasm(io, try_.fntype)
+    println(io)
     ctx = IOContext(io, :indent => indent + INDENT_INC)
     _printwasm(ctx, try_.inst)
     for cblock in try_.catches
@@ -323,15 +410,16 @@ function _printwasm(io::IO, try_::Try)
         println(io)
         _printwasm(ctx, cblock.inst)
     end
+    println(io)
     print(io, INDENT_S^indent)
     _printkw(io, "end")
 end
 
 function _printwasm(io::IO, expr::Vector{Inst})
     ctx = IOContext(io, :indent => get(io, :indent, 0))
-    for inst in expr
+    for (i, inst) in enumerate(expr)
         _printwasm(ctx, inst)
-        println(io)
+        i != lastindex(expr) && println(io)
     end
 end
 
@@ -341,8 +429,10 @@ function _printwasm(io::IO, b::Block)
     _printkw(io, "block")
     print(io, " ")
     _printwasm(io, b.fntype)
+    println(io)
     ctx = IOContext(io, :indent => indent + INDENT_INC)
     _printwasm(ctx, b.inst)
+    println(io)
     print(io, INDENT_S^indent)
     _printkw(io, "end")
 end

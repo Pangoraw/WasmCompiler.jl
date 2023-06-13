@@ -4,13 +4,22 @@ struct StructField
     mut::Bool
 end
 
-struct StructType <: WasmType
+abstract type GCType <: WasmType end
+
+struct StructType <: GCType
     name::Union{Nothing,String}
+    subidx::Union{Nothing,Index}
     fields::Vector{StructField}
 end
 
+struct ArrayType <: GCType
+    name::Union{Nothing,String}
+    mut::Bool
+    content::ValType
+end
+
 struct RecursiveZone <: WasmType
-    structs::Vector{StructType}
+    structs::Vector{GCType}
 end
 
 function jl_to_struct(T)
@@ -69,6 +78,7 @@ struct Mem
     type::MemoryType
 end
 struct Global
+    name::Union{Nothing,String}
     type::GlobalType
     init::Vector{Inst}
 end
@@ -117,6 +127,13 @@ WModule(func::Func) = WModule(
         [], [], [], nothing,
         [], [FuncExport(func.name::String, 1)],
     )
+
+num_types(mod::WModule) = sum(mod.types) do typ
+    typ isa StructType && return 1
+    typ isa ArrayType && return 1
+    typ isa RecursiveZone && return length(typ.structs)
+    error("invalid type $typ")
+end
 
 export!(mod, name, index) = push!(mod.exports, FuncExport(name, index))
 

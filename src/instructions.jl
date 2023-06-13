@@ -28,8 +28,8 @@ struct FuncRef <: WasmRef end
 struct ExternRef <: WasmRef end
 
 struct ArrayRef <: WasmRef
-    mut::Bool
-    content::ValType
+    null::Bool
+    typeidx::Index
 end
 
 struct StructRef <: WasmRef
@@ -37,9 +37,13 @@ struct StructRef <: WasmRef
     typeidx::Index
 end
 
+struct StringRef <: WasmRef end
+
 valtype(::Type{Bool}) = i32
 valtype(::Type{Int32}) = i32
+valtype(::Type{UInt32}) = i32
 valtype(::Type{Int64}) = i64
+valtype(::Type{UInt64}) = i64
 valtype(::Type{Float32}) = f32
 valtype(::Type{Float64}) = f64
 
@@ -168,6 +172,16 @@ struct f64_convert_i64_s <: Inst end
 struct f64_convert_i64_u <: Inst end
 struct f64_convert_i32_s <: Inst end
 struct f64_convert_i32_u <: Inst end
+
+struct i32_trunc_f32_s <: Inst end
+struct i32_trunc_f32_u <: Inst end
+struct i32_trunc_f64_s <: Inst end
+struct i32_trunc_f64_u <: Inst end
+
+struct i64_trunc_f32_s <: Inst end
+struct i64_trunc_f32_u <: Inst end
+struct i64_trunc_f64_s <: Inst end
+struct i64_trunc_f64_u <: Inst end
 
 struct i32_wrap_i64 <: Inst end
 struct f32_demote_f64 <: Inst end
