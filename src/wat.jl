@@ -74,6 +74,16 @@ function _printwasm(io::IO, mod::WModule)
             !isnothing(imp.id) && print(io, ' ')
             _printwasm(ctx, imp.fntype)
             print(io, ")")
+        elseif imp isa GlobalImport
+            print(io, "(")
+            _printkw(io, "global")
+            print(io, ' ')
+            print_sigil(io, imp.id)
+            print(io, ' ')
+            imp.type.mut && (print(io, '('); _printkw(io, "mut"); print(io, ' '))
+            _printwasm(ctx, imp.type.type)
+            imp.type.mut && print(io, ')')
+            print(io, ")")
         else
             error("cannot handle import $imp")
         end
@@ -326,6 +336,33 @@ function _printwasm(io::IO, inst::Inst)
     end
 end
 
+function _printwasm(io::IO, instop::InstOperands)
+    indent = get(io, :indent, INDENT_INC)
+    print(io, INDENT_S^indent, '(')
+    if instop.inst isa Block
+        wmod = get(io, :mod, nothing)
+        instops = sexpr(wmod, instop.inst.inst)
+        _printkw(io, "block")
+        _printwasm(io, instop.inst.fntype)
+        ctx = IOContext(io, :indent => indent + INDENT_INC)
+        for instop in instops
+            println(io)
+            _printwasm(ctx, instop)
+        end
+        print(io, ')')
+        println(io)
+        return
+    end
+    ctx = IOContext(io, :indent => 0)
+    _printwasm(ctx, instop.inst)
+    ctx = IOContext(io, :indent => indent + INDENT_INC)
+    for op in instop.operands
+        println(io)
+        _printwasm(ctx, op)
+    end
+    print(io, ')')
+end
+
 function _printwasm(io::IO, f::Func)
     indent = get(io, :indent, 0)::Int
     print(io, INDENT_S^indent, "(")
@@ -358,7 +395,15 @@ function _printwasm(io::IO, f::Func)
         end
     end
     ctx = IOContext(io, :indent => indent + INDENT_INC)
-    _printwasm(ctx, f.inst)
+    wmod = get(io, :mod, nothing)
+    print_sexpr = get(io, :print_sexpr, false)
+    if isnothing(wmod) || !print_sexpr
+        _printwasm(ctx, f.inst)
+    else
+        for instop in sexpr(wmod, f.inst)
+            _printwasm(ctx, instop)
+        end
+    end
     println(io)
     print(io, INDENT_S^indent, ")")
 end

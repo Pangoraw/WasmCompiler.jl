@@ -4,6 +4,7 @@ include("./instructions.jl")
 include("./wasm.jl")
 include("./compiler.jl")
 include("./relooper.jl")
+include("./sexpr.jl")
 include("./wat.jl")
 include("./optimize.jl")
 

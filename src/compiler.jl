@@ -40,6 +40,8 @@ RuntimeModule() =
        ], [Func("jl_init", FuncType([], []), [], [])], [], [], [], [], [], 2, [
         FuncImport("bootstrap", "jl_box_int32", "jl-box-int32", FuncType([i32], [StructRef(false, 1)])),
         FuncImport("bootstrap", "jl_new_datatype", "jl-new-datatype", FuncType([StructRef(false, 6), i32, i32], [StructRef(false, 2)])),
+        FuncImport("bootstrap", "jl_isa", "jl-isa", FuncType([StructRef(false, 1), StructRef(false, 2)], [i32])),
+        GlobalImport("bootstrap", "jl_exception", "jl-exception", GlobalType(true, StructRef(true, 1))),
     ], [])
 
 struct CodegenContext
@@ -95,6 +97,7 @@ const INTRINSICS = Dict(
     Base.and_int => Intrinsic(true, i32_and(), i64_and()),
     Base.or_int => Intrinsic(true, i32_or(), i64_or()),
     Base.xor_int => Intrinsic(true, i32_xor(), i64_xor()),
+    Base.ctlz_int => Intrinsic(true, i32_clz(), i64_clz()),
     # TODO: sh fns needs special handling as you can specify the shift with a different type
     # Base.lshr_int => Intrinsic(true, i32_shr_u(), i64_shr_u()),
     # Base.ashr_int => Intrinsic(true, i32_shr_s(), i64_shr_s()),
@@ -123,7 +126,7 @@ function struct_idx!(ctx, @nospecialize(typ))
         mut = ismutabletype(typ)
         push!(ctx.mod.types, StructType(string(nameof(typ)), 1,
           append!([StructField(StructRef(false, 2), "jl-value-type", false)], [
-            StructField(valtype(FT), string(FN), mut)
+            StructField(FT <: Numeric ? valtype(FT) : jl_value_t, string(FN), mut)
             for (FT, FN) in zip(fieldtypes(typ), fieldnames(typ))
         ])))
         num_types(ctx.mod)
@@ -150,7 +153,7 @@ function emit_codes(ctx, ir, nargs)
     # TODO: handle first arg properly
     locals = ValType[
         argtype <: Numeric ? valtype(argtype) : StructRef(false, struct_idx!(ctx, argtype))
-        for argtype in ir.argtypes[begin+1:begin+nargs]
+        for argtype in map(widenconst, @view ir.argtypes[begin+1:begin+nargs])
     ]
 
     ssa_to_local = fill(-1, length(ir.stmts))
@@ -208,8 +211,12 @@ function emit_codes(ctx, ir, nargs)
             local_get(getlocal!(val))
         elseif val isa Int32 || val isa Bool
             i32_const(val)
+        elseif val isa UInt32
+            i32_const(reinterpret(Int32, val))
         elseif val isa Int64
             i64_const(val)
+        elseif val isa UInt64
+            i64_const(reinterpret(Int64, val))
         elseif val isa Float32
             f32_const(val)
         elseif val isa Float64
@@ -287,9 +294,9 @@ function emit_codes(ctx, ir, nargs)
                     push!(exprs[bidx], emit_val(arg))
                     if valtype(typ) == argtype
                         # pass
-                    elseif typ == Int32 && argtype == f32
+                    elseif typ in (Int32, UInt32) && argtype == f32
                         push!(exprs[bidx], i32_reinterpret_f32())
-                    elseif typ == Int64 && argtype == f64
+                    elseif typ in (Int64, UInt64) && argtype == f64
                         push!(exprs[bidx], i64_reinterpret_f64())
                     elseif typ == Float32 && argtype == i32
                         push!(exprs[bidx], f32_reinterpret_i32())
@@ -425,6 +432,40 @@ function emit_codes(ctx, ir, nargs)
                     end
                     push!(exprs[bidx], local_set(getlocal!(ssa)))
                     continue
+                elseif f === Core.Intrinsics.have_fma
+                    push!(exprs[bidx], i32_const(0), local_set(getlocal!(ssa)))
+                    continue
+                elseif f === Base.flipsign_int
+                    argtype = irtype(inst.args[2])
+                    push!(exprs[bidx], emit_val(inst.args[3]))
+                    if argtype == i32
+                        push!(
+                            exprs[bidx],
+                            i32_const(0),
+                            emit_val(inst.args[2]),
+                            i32_sub(),
+                            emit_val(inst.args[2]),
+                            i32_const(0),
+                            i32_ge_u(),
+                            select(),
+                            local_set(getlocal!(ssa)),
+                        )
+                    elseif argtype == i64
+                        push!(
+                            exprs[bidx],
+                            i64_const(0),
+                            emit_val(inst.args[2]),
+                            i64_sub(),
+                            emit_val(inst.args[2]),
+                            i64_const(0),
+                            i64_ge_u(),
+                            select(),
+                            local_set(getlocal!(ssa)),
+                        )
+                    else
+                        throw(CompilationError(types, "invalid flipsign_int $inst"))
+                    end
+                    continue
                 elseif f === Base.getfield
                     field = inst.args[3]
                     (field isa QuoteNode && field.value isa Symbol) || throw(CompilationError(types, "invalid getfield $inst"))
@@ -443,13 +484,13 @@ function emit_codes(ctx, ir, nargs)
                     continue
                 end
                 for arg in inst.args[begin+1:end]
+                    if arg isa GlobalRef && isconst(arg)
+                        arg = getproperty(arg.mod, arg.name) 
+                    end
                     if arg isa DataType
                         push!(exprs[bidx], global_get(emit_datatype!(ctx, arg) - 1))
                         continue
                     end
-
-                    (arg isa DataType || arg isa GlobalRef) &&
-                        throw(CompilationError(types, "invalid arg $inst"))
                     push!(exprs[bidx], emit_val(arg))
                 end
                 if haskey(INTRINSICS, f)
@@ -483,7 +524,7 @@ function emit_codes(ctx, ir, nargs)
                     else
                         throw(CompilationError(types, "invalid not_int"))
                     end
-                elseif f === Base.muladd_float
+                elseif f === Base.muladd_float || f === Base.fma_float
                     if all(arg -> irtype(arg) == f32, inst.args[begin+1:end])
                         push!(exprs[bidx], f32_mul(), f32_add())
                     elseif all(arg -> irtype(arg) == f64, inst.args[begin+1:end])
@@ -529,8 +570,16 @@ function emit_codes(ctx, ir, nargs)
                     else
                         throw(CompilationError(types, "invalid shl_int $inst"))
                     end
-                # elseif f === Base.isa
-                #     push!(exprs[bidx], drop(), drop(), i32_const(1))
+                elseif f === Core.convert
+                    push!(exprs[bidx], drop(), drop())
+                    push!(exprs[bidx], emit_val(inst.args[3]))
+                elseif f === Base.isa
+                    typ = resolve_arg(inst, 3)
+                    push!(exprs[bidx], global_get(emit_datatype!(ctx, typ)))
+                    push!(exprs[bidx], call(10))
+                elseif f === Core.throw
+                    push!(exprs[bidx], drop(), unreachable())
+                    continue
                 else
                     throw(CompilationError(types, "Cannot handle call to $f @ $inst"))
                 end
@@ -580,6 +629,8 @@ function emit_codes(ctx, ir, nargs)
                 haskey(ctx.func_dict, mi.specTypes) || emit_func!(ctx, mi.specTypes)
                 funcidx = ctx.func_dict[mi.specTypes]
                 push!(exprs[bidx], call(funcidx - 1))
+                typ = jltype(ssa)
+                typ <: Union{} && continue
                 loc = getlocal!(ssa)
                 push!(exprs[bidx], local_set(loc))
             elseif Meta.isexpr(inst, :new)
@@ -646,11 +697,13 @@ function emit_func!(ctx, types)
         emit_codes(ctx, ir, nargs)
     catch err
         err isa CompilationError && rethrow()
+        # display(ir)
         throw(CompilationError(types, err))
     end
 
     relooper = Relooper(exprs, ir)
 
+    @debug "relooping" c = sprint(Base.show_tuple_as_call, :ok, types)
     expr = Inst[
         reloop!(relooper),
         unreachable(), # CF will go through a ReturnNode
@@ -658,11 +711,14 @@ function emit_func!(ctx, types)
 
     functype = FuncType(
         locals[begin:nargs],
-        [rt <: Numeric ? valtype(rt) : StructRef(false, struct_idx!(ctx, rt))],
+        rt <: Union{} ?
+          [] :
+          [rt <: Numeric ? valtype(rt) : StructRef(false, struct_idx!(ctx, rt))],
     )
 
     t = types.parameters[1]
-    name = replace(nameof(t.instance) |> string, "#" => "_")
+    name = isdefined(t, :instance) ? nameof(t.instance) |> string : sprint(show, t)
+    name = replace(name, "#" => "_")
     if startswith(name, "_")
         name = "jl" * name
     end

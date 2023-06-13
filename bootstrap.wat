@@ -375,6 +375,12 @@
 
     (export "jl_repr" (func $jl-repr))
 
+    (func $jl-isa (export "jl_isa") (param $x (ref $jl-value-t)) (param $t (ref $jl-datatype-t)) (result i32)
+          (ref.eq ;; TODO: handle $t abstract
+              (local.set $xt
+                  (call $jl-typeof (local.get $x)))
+              (local.get $y)))
+
     (func $jl-sveclen (param (ref null $jl-simplevector-t)) (result i32)
         (array.len (struct.get $jl-simplevector-t $values (local.get 0))))
 

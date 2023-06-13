@@ -64,6 +64,13 @@ struct FuncImport <: Import
     fntype::FuncType
 end
 
+struct GlobalImport <: Import
+    module_name::String
+    name::String
+    id::String
+    type::GlobalType
+end
+
 abstract type Export end
 
 struct FuncExport <: Export
