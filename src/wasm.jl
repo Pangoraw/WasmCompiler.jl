@@ -71,6 +71,13 @@ struct GlobalImport <: Import
     type::GlobalType
 end
 
+struct TagImport <: Import
+    module_name::String
+    name::String
+    id::Union{Nothing,String}
+    type::FuncType
+end
+
 abstract type Export end
 
 struct FuncExport <: Export
@@ -167,9 +174,8 @@ end
 ## Utilities
 
 function Base.map!(f, cont::Union{Func,Block,Loop})
-    for i in eachindex(cont.inst)
-        inst = cont.inst[i]
-        cont.inst[i] = if inst isa Union{Block,Loop,If}
+    map!(cont.inst, cont.inst) do inst
+        if inst isa Union{Block,Loop,If}
             map!(f, inst)
         else
             f(inst)
@@ -178,8 +184,20 @@ function Base.map!(f, cont::Union{Func,Block,Loop})
     cont
 end
 function Base.map!(f, if_::If)
-    map!(f, if_.trueinst, if_.trueinst)
-    map!(f, if_.falseinst, if_.falseinst)
+    map!(if_.trueinst, if_.trueinst) do inst
+        if inst isa Union{Block,Loop,If}
+            map!(f, inst)
+        else
+            f(inst)
+        end
+    end
+    map!(if_.falseinst, if_.falseinst) do inst
+        if inst isa Union{Block,Loop,If}
+            map!(f, inst)
+        else
+            f(inst)
+        end
+    end
     if_
 end
 
@@ -207,4 +225,35 @@ function Base.foreach(f, if_::If)
             f(inst)
         end
     end
+end
+
+function Base.filter!(f, cont::Union{Func,Block,Loop})
+    filter!(cont.inst) do inst
+        if inst isa Union{Block,Loop,If}
+            filter!(f, inst)
+            true
+        else
+            f(inst)
+        end
+    end
+    cont
+end
+function Base.filter!(f, if_::If)
+    filter!(if_.trueinst) do inst
+        if inst isa Union{Block,Loop,If}
+            filter!(f, inst)
+            true
+        else
+            f(inst)
+        end
+    end
+    filter!(if_.falseinst) do inst
+        if inst isa Union{Block,Loop,If}
+            filter!(f, inst)
+            true
+        else
+            f(inst)
+        end
+    end
+    if_
 end

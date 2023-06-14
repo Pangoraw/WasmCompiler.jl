@@ -1,4 +1,6 @@
 import WasmCompiler as WC
+using WasmCompiler: Func, i32, FuncType, local_set, local_get, i32_const, drop
+
 import Wasmtime
 import Wasmtime: WasmEngine, WasmStore, WasmModule, WasmInstance
 using Test
@@ -120,4 +122,21 @@ f(a, b) = g(a - 1, b)
 
     x, y = Int32(10), Int32(42)
     @test f(x, y) == convert(Int32, wf(x, y) |> only)
+end
+
+@testset "Opt: Remove unused" begin
+    func = Func("f", FuncType([], []), [i32, i32], [
+        i32_const(2),
+        local_set(1),
+        i32_const(1),
+        local_set(0),
+        local_get(0),
+        drop(),
+        local_get(1),
+    ])
+
+    WC.make_tees!(func)
+    WC.remove_unused!(func)
+
+    @test length(func.locals) == 1
 end

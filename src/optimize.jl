@@ -1,9 +1,14 @@
+"""
+    make_tees!(func::Func)::Func
+
+Merge subsequent `local.set` and `local.get` instructions to the
+same local in a single `local.tee` instruction.
+"""
 make_tees!(func) = (_make_tees!(func.inst); func)
 
 function _make_tees!(instlist)
-
     i = firstindex(instlist)
-    while i < lastindex(instlist)
+    while i <= lastindex(instlist)
         inst = instlist[i]
         i += 1
 
@@ -23,13 +28,20 @@ function _make_tees!(instlist)
 
         inst.n == nextinst.n || continue
 
-        deleteat!(instlist, i)
         instlist[i - 1] = local_tee(inst.n)
+        instlist[i] = nop()
+
+        i += 1
     end
 
     instlist
 end
 
+"""
+    remove_unused!(func::Func)::Func
+
+Remove locals who have no corresponding `local.get`.
+"""
 function remove_unused!(func)
     uses = zeros(UInt32, length(func.locals))
     nargs = length(func.fntype.params)
@@ -40,17 +52,29 @@ function remove_unused!(func)
     end
 
     unused = setdiff(findall(iszero, uses), 1:nargs)
+
+    newindices = map(n -> n - count(<(n), unused) - 1, 1:length(func.locals))
     deleteat!(func.locals, unused)
 
     map!(func) do inst
         if inst isa local_set || inst isa local_tee || inst isa local_get
             inst.n + 1 in unused && return inst isa local_set ? drop() : nop()
-            return typeof(inst)(inst.n - count(<(inst.n + 1), unused))
+            newn = newindices[inst.n + 1]
+            return typeof(inst)(newn)
         end
         inst
     end
 
     func
+end
+
+"""
+    remove_nops!(func::Func)::Func
+
+Remove `nop` instructions from the function body.
+"""
+function remove_nops!(func)
+    filter!(inst -> !(inst isa nop), func)
 end
 
 function merge_blocks!(func)

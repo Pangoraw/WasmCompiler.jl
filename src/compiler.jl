@@ -9,28 +9,28 @@ Returns a `WModule` which can be merged with `bootstrap.wat` using `wasm-merge`.
 RuntimeModule() =
     WModule([
         RecursiveZone([
-            StructType("jl-value-t", nothing, [
+            StructType("jl-value-t", nothing, [ # index 1
                 StructField(StructRef(true, 2), "jl-value-type", false),
             ]),
-            StructType("jl-datatype-t", 1, [
+            StructType("jl-datatype-t", 1, [ # index 2
                 StructField(StructRef(true, 2), "jl-value-type", false),
                 StructField(StructRef(true, 3), "name", true),
                 StructField(StructRef(true, 2), "super", true),
             ]),
-            StructType("jl-typename-t", 1, [
+            StructType("jl-typename-t", 1, [ # index 3
                 StructField(StructRef(true, 2), "jl-value-type", false),
                 StructField(StructRef(false, 6), "name", false),
             ]),
-            StructType("jl-string-t", 1, [
+            StructType("jl-string-t", 1, [ # index 4
                 StructField(StructRef(true, 2), "jl-value-type", false),
                 StructField(StringRef(), "str", false),
             ]),
-            ArrayType("jl-values-t", true, jl_value_t),
-            StructType("jl-simplevector-t", 1, [
+            ArrayType("jl-values-t", true, jl_value_t), # index 5
+            StructType("jl-simplevector-t", 1, [ # index 6
                 StructField(StructRef(true, 2), "jl-value-type", false),
                 StructField(ArrayRef(false, 5), "values", false),
             ]),
-            StructType("jl-symbol-t", 1, [
+            StructType("jl-symbol-t", 1, [ # index 7
                 StructField(StructRef(true, 2), "jl-value-type", false),
                 StructField(i32, "hash", false),
                 StructField(StructRef(false, 3), "str", false),
@@ -42,6 +42,7 @@ RuntimeModule() =
         FuncImport("bootstrap", "jl_new_datatype", "jl-new-datatype", FuncType([StructRef(false, 6), i32, i32], [StructRef(false, 2)])),
         FuncImport("bootstrap", "jl_isa", "jl-isa", FuncType([StructRef(false, 1), StructRef(false, 2)], [i32])),
         GlobalImport("bootstrap", "jl_exception", "jl-exception", GlobalType(true, StructRef(true, 1))),
+        TagImport("bootstrap", "jl_exception_tag", "jl-exception-tag", voidtype),
     ], [])
 
 struct CodegenContext
@@ -98,10 +99,8 @@ const INTRINSICS = Dict(
     Base.or_int => Intrinsic(true, i32_or(), i64_or()),
     Base.xor_int => Intrinsic(true, i32_xor(), i64_xor()),
     Base.ctlz_int => Intrinsic(true, i32_clz(), i64_clz()),
-    # TODO: sh fns needs special handling as you can specify the shift with a different type
-    # Base.lshr_int => Intrinsic(true, i32_shr_u(), i64_shr_u()),
-    # Base.ashr_int => Intrinsic(true, i32_shr_s(), i64_shr_s()),
-    # Base.shl_int => Intrinsic(true, i32_shl(), i64_shl()),
+    Base.cttz_int => Intrinsic(true, i32_ctz(), i64_ctz()),
+    Base.checked_srem_int => Intrinsic(true, i32_rem_s(), i64_rem_s()),
     Base.mul_float => Intrinsic(false, f32_mul(), f64_mul()),
     Base.add_float => Intrinsic(false, f32_add(), f64_add()),
     Base.sub_float => Intrinsic(false, f32_sub(), f64_sub()),
@@ -164,9 +163,6 @@ function emit_codes(ctx, ir, nargs)
         loc = ssa_to_local[val.id]
         if loc == -1
             local_type = irtype(val)
-            if local_type isa StructRef
-                @warn "got structref" val
-            end
             push!(locals, local_type)
             loc = ssa_to_local[val.id] = length(locals) - 1
         end
@@ -188,22 +184,6 @@ function emit_codes(ctx, ir, nargs)
     function irtype(val)
         typ = jltype(val)
         typ <: Numeric ? valtype(typ) : jl_value_t
-    end
-
-    function emit_boxed(typ) # from valtype(typ) -> (ref $jl-value-t)
-        if typ == Int32
-            call("jl-box-Int32")
-        elseif typ == UInt32
-            call("jl-box-UInt32")
-        elseif typ == Int64
-            call("jl-box-Int64")
-        elseif typ == Float32
-            call("jl-box-Float32")
-        elseif typ == Float64
-            call("jl-box-Float64")
-        else
-            nop()
-        end
     end
 
     function emit_val(val)
@@ -466,13 +446,30 @@ function emit_codes(ctx, ir, nargs)
                         throw(CompilationError(types, "invalid flipsign_int $inst"))
                     end
                     continue
+                elseif f === Base.arrayref
+                    idxtype = irtype(inst.args[4])
+                    idxtype in (i32, i64) || throw(CompilationError(types, "invalid index type $idxtype in $inst"))
+                    push!(
+                        exprs[bidx],
+                        emit_val(inst.args[3]),
+                        emit_val(inst.args[4]),
+                        idxtype == i32 ? nop() : i32_wrap_i64(),
+                        array_get(5 - 1),
+                        local_set(getlocal!(ssa)),
+                    )
+                    continue
                 elseif f === Base.getfield
                     field = inst.args[3]
-                    (field isa QuoteNode && field.value isa Symbol) || throw(CompilationError(types, "invalid getfield $inst"))
-                    field = field.value
-                    argtype = irtype(inst.args[2])
                     typ = jltype(inst.args[2])
-                    fieldidx = findfirst(==(field), fieldnames(typ))
+                    fieldidx = if field isa QuoteNode && field.value isa Symbol
+                        field = field.value
+                        argtype = irtype(inst.args[2])
+                        findfirst(==(field), fieldnames(typ))
+                    elseif field isa Int
+                        field
+                    else
+                        throw(CompilationError(types, "invalid getfield $inst"))
+                    end
                     structidx = struct_idx!(ctx, typ) - 1
                     push!(
                         exprs[bidx],
@@ -557,6 +554,9 @@ function emit_codes(ctx, ir, nargs)
                     else
                         throw(CompilationError(types, "invalid shl_int $inst"))
                     end
+                elseif f === Core.tuple
+                    push!(exprs[bidx], array_new(1))
+                    push!(exprs[bidx], local_set(getlocal!(ssa)))
                 elseif f === Base.shl_int
                     argtype = irtype(inst.args[2])
                     if argtype == i32
@@ -578,7 +578,8 @@ function emit_codes(ctx, ir, nargs)
                     push!(exprs[bidx], global_get(emit_datatype!(ctx, typ)))
                     push!(exprs[bidx], call(10))
                 elseif f === Core.throw
-                    push!(exprs[bidx], drop(), unreachable())
+                    push!(exprs[bidx], emit_val(inst.args[2]))
+                    push!(exprs[bidx], global_set(0), throw_(0))
                     continue
                 else
                     throw(CompilationError(types, "Cannot handle call to $f @ $inst"))
@@ -630,7 +631,7 @@ function emit_codes(ctx, ir, nargs)
                 funcidx = ctx.func_dict[mi.specTypes]
                 push!(exprs[bidx], call(funcidx - 1))
                 typ = jltype(ssa)
-                typ <: Union{} && continue
+                typ <: Union{} && (push!(exprs[bidx], drop(), unreachable()); continue)
                 loc = getlocal!(ssa)
                 push!(exprs[bidx], local_set(loc))
             elseif Meta.isexpr(inst, :new)
@@ -732,7 +733,7 @@ function emit_func!(ctx, types)
     # _printwasm(stdout, f)
 
     f = if ctx.optimize
-        f |> make_tees! # |> remove_unused!
+        f |> make_tees! |> remove_unused! |> remove_nops!
     else
         f
     end

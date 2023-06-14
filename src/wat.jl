@@ -84,6 +84,13 @@ function _printwasm(io::IO, mod::WModule)
             _printwasm(ctx, imp.type.type)
             imp.type.mut && print(io, ')')
             print(io, ")")
+        elseif imp isa TagImport
+            print(io, "(")
+            _printkw(io, "tag")
+            print(io, ' ')
+            !isnothing(imp.id) && (print_sigil(io, imp.id); print(io, ' '))
+            _printwasm(io, imp.type)
+            print(io, ')')
         else
             error("cannot handle import $imp")
         end
@@ -390,13 +397,13 @@ function _printwasm(io::IO, f::Func)
             print(io, INDENT_S^(indent+INDENT_INC), "(")
             _printkw(io, "local")
             println(io, " ")
-            _printwasm(io, loc)
+            _printwasm(ctx, loc)
             print(io, ")")
         end
     end
     ctx = IOContext(io, :indent => indent + INDENT_INC)
-    wmod = get(io, :mod, nothing)
     print_sexpr = get(io, :print_sexpr, false)
+    wmod = get(io, :mod, nothing)
     if isnothing(wmod) || !print_sexpr
         _printwasm(ctx, f.inst)
     else
@@ -414,6 +421,7 @@ function _printwasm(io::IO, loop::Loop)
     _printkw(io, "loop")
     print(io, " ")
     _printwasm(io, loop.fntype)
+    println(io)
     ctx = IOContext(io, :indent => indent + INDENT_INC)
     _printwasm(ctx, loop.inst)
     println(io)

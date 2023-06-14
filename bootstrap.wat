@@ -110,6 +110,13 @@
             (ref.as_non_null (global.get $jl-float64-type))
             (local.get 0)))
 
+    (type $jl-nonnull-values-t (array (ref $jl-value-t)))
+    (type $jl-tuple-t
+        (sub $jl-value-t
+            (struct
+                (field $jl-value-type (ref $jl-datatype-t))
+                (field $values (ref $jl-nonnull-values-t)))))
+
     (func $jl-typeof (param (ref $jl-value-t)) (result (ref null $jl-value-t))
         (struct.get $jl-value-t $jl-value-type
             (local.get 0)))
