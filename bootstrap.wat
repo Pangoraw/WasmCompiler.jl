@@ -382,7 +382,31 @@
 
     (export "jl_repr" (func $jl-repr))
 
+    (func $is-abstract (param $x (ref $jl-datatype-t)) (result i32)
+          (i32.eq
+                (i32.const 1)
+                (i32.and
+                    (i32.const 1)
+                    (struct.get $jl-typename-t $flags ;; i32
+                        (struct.get $jl-datatype-t $name ;; $jl-typename-t
+                            (local.get $x))))))
+ 
+    (func $is-in-parent (param $tx (ref $jl-datatype-t)) (param $t (ref $jl-datatype-t)) (result i32)
+          (if (ref.eq (local.get $tx) (local.get $t))
+              (then (i32.const 1) (return)))
+          (if (req.eq (ref.as_non_null (global.get $jl-any-type)) (local.get $t))
+              (then (i32.const 1) (return)))
+          (if (req.eq (ref.as_non_null (global.get $jl-any-type)) (local.get $tx))
+              (then (i32.const 0) (return)))
+          (call $is-in-parent
+                (struct.get $jl-datatype-t $super (local.get $tx))
+                (local.get $t)))
+ 
     (func $jl-isa (export "jl_isa") (param $x (ref $jl-value-t)) (param $t (ref $jl-datatype-t)) (result i32)
+          (if (call $is-abstract (local.get $t))
+              (then
+                    (call $is-in-parent (call $jl-typeof (local.get $x)) (local.get $t))
+                    (return)))
           (ref.eq ;; TODO: handle $t abstract
               (local.set $xt
                   (call $jl-typeof (local.get $x)))
