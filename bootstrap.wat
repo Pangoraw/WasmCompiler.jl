@@ -419,12 +419,11 @@
               (then
                     (call $is-in-parent (call $jl-typeof (local.get $x)) (local.get $t))
                     (return)))
-          (ref.eq ;; TODO: handle $t abstract
-              (local.set $xt
-                  (call $jl-typeof (local.get $x)))
-              (local.get $y)))
+          (ref.eq
+              (call $jl-typeof (local.get $x))
+              (local.get $t)))
 
-    (func $jl-egal (param $a (ref $jl-value-t)) (param $b (ref $jl-value-t)) (result i32)
+    (func $jl-egal (export "jl_egal") (param $a (ref $jl-value-t)) (param $b (ref $jl-value-t)) (result i32)
           (local $ta (ref $jl-datatype-t)) (local $tb (ref $jl-datatype-t))
           (local.set $ta (call $jl-typeof (local.get $ta)))
           (local.set $tb (call $jl-typeof (local.get $tb)))
