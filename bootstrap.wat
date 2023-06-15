@@ -382,7 +382,19 @@
 
     (export "jl_repr" (func $jl-repr))
 
-    (func $is-abstract (param $x (ref $jl-datatype-t)) (result i32)
+    (func $is-mutable (param $x (ref $jl-value-t)) (result i32)
+          (call $is-mutable-type
+                (call $jl-typeof (local.get $x))))
+    (func $is-mutable-type (param $x (ref $jl-datatype-t)) (result i32)
+          (i32.eq
+                (i32.const 2)
+                (i32.and
+                       (i32.const 2)
+                       (struct.get $jl-typename-t $flags ;; i32
+                            (struct.get $jl-datatype-t $name ;; $jl-typename-t
+                                (local.get $x))))))
+
+    (func $is-abstract-type (param $x (ref $jl-datatype-t)) (result i32)
           (i32.eq
                 (i32.const 1)
                 (i32.and
@@ -403,7 +415,7 @@
                 (local.get $t)))
  
     (func $jl-isa (export "jl_isa") (param $x (ref $jl-value-t)) (param $t (ref $jl-datatype-t)) (result i32)
-          (if (call $is-abstract (local.get $t))
+          (if (call $is-abstract-type (local.get $t))
               (then
                     (call $is-in-parent (call $jl-typeof (local.get $x)) (local.get $t))
                     (return)))
@@ -412,6 +424,16 @@
                   (call $jl-typeof (local.get $x)))
               (local.get $y)))
 
+    (func $jl-egal (param $a (ref $jl-value-t)) (param $b (ref $jl-value-t)) (result i32)
+          (local $ta (ref $jl-datatype-t)) (local $tb (ref $jl-datatype-t))
+          (local.set $ta (call $jl-typeof (local.get $ta)))
+          (local.set $tb (call $jl-typeof (local.get $tb)))
+          (if (i32.eqz (ref.eq (local.get $ta) (local.get $tb))) ;; types not equal
+              (then (i32.const 0) (return)))
+          (if (call $is-mutable-type (local.get $ta))
+              (then (ref.eq (local.get $a) (local.get $b)) (return)))
+          (unreachable))
+ 
     (func $jl-sveclen (param (ref null $jl-simplevector-t)) (result i32)
         (array.len (struct.get $jl-simplevector-t $values (local.get 0))))
 
