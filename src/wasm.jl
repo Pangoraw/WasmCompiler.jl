@@ -176,7 +176,9 @@ end
 function Base.map!(f, cont::Union{Func,Block,Loop})
     map!(cont.inst, cont.inst) do inst
         if inst isa Union{Block,Loop,If}
+            v = f(inst)
             map!(f, inst)
+            v
         else
             f(inst)
         end
@@ -186,14 +188,18 @@ end
 function Base.map!(f, if_::If)
     map!(if_.trueinst, if_.trueinst) do inst
         if inst isa Union{Block,Loop,If}
+            v = f(inst)
             map!(f, inst)
+            v
         else
             f(inst)
         end
     end
     map!(if_.falseinst, if_.falseinst) do inst
         if inst isa Union{Block,Loop,If}
+            v = f(inst)
             map!(f, inst)
+            v
         else
             f(inst)
         end
@@ -204,6 +210,7 @@ end
 function Base.foreach(f, cont::Union{Func,Block,Loop})
     for inst in cont.inst
         if inst isa Union{Block,Loop,If}
+            f(inst)
             foreach(f, inst)
         else
             f(inst)
@@ -213,6 +220,7 @@ end
 function Base.foreach(f, if_::If)
     for inst in if_.trueinst
         if inst isa Union{Block,Loop,If}
+            f(inst)
             foreach(f, inst)
         else
             f(inst)
@@ -230,8 +238,9 @@ end
 function Base.filter!(f, cont::Union{Func,Block,Loop})
     filter!(cont.inst) do inst
         if inst isa Union{Block,Loop,If}
-            filter!(f, inst)
-            true
+            v = f(inst)
+            v && filter!(f, inst)
+            v 
         else
             f(inst)
         end
@@ -241,8 +250,9 @@ end
 function Base.filter!(f, if_::If)
     filter!(if_.trueinst) do inst
         if inst isa Union{Block,Loop,If}
-            filter!(f, inst)
-            true
+            v = f(inst)
+            v && filter!(f, inst)
+            v 
         else
             f(inst)
         end

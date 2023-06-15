@@ -304,9 +304,9 @@ function emit_codes(ctx, ir, nargs)
                     arg = inst.args[3]
                     push!(exprs[bidx], emit_val(arg))
                     argtype = irtype(arg)
-                    if typ == Int32 && argtype == i64
+                    if typ in (Int32, UInt32) && argtype == i64
                         push!(exprs[bidx], i32_wrap_i64())
-                    elseif typ == Int32 && argtype == i32
+                    elseif typ in (Int32, UInt32) && argtype == i32
                         # pass
                     else
                         throw(CompilationError(types, "invalid trunc_int $inst"))
@@ -318,7 +318,7 @@ function emit_codes(ctx, ir, nargs)
                     arg = inst.args[3]
                     push!(exprs[bidx], emit_val(arg))
                     argtype = jltype(arg)
-                    if typ == Int64
+                    if typ in (Int64, UInt64)
                         if argtype == Int32 || argtype == Bool
                             push!(exprs[bidx], i64_extend_i32_s())
                         elseif argtype == UInt32
@@ -326,7 +326,7 @@ function emit_codes(ctx, ir, nargs)
                         else
                             throw(CompilationError(types, "invalid zext_int $inst"))
                         end
-                    elseif typ == Int32
+                    elseif typ in (Int32, UInt32)
                         # pass
                     else
                         throw(CompilationError(types, "invalid zext_int $inst"))
@@ -634,6 +634,8 @@ function emit_codes(ctx, ir, nargs)
                 typ <: Union{} && (push!(exprs[bidx], drop(), unreachable()); continue)
                 loc = getlocal!(ssa)
                 push!(exprs[bidx], local_set(loc))
+            elseif isnothing(inst)
+                push!(exprs[bidx], nop())
             elseif Meta.isexpr(inst, :new)
                 for arg in inst.args[begin+1:end]
                     push!(exprs[bidx], emit_val(arg))
