@@ -149,7 +149,7 @@ num_types(mod::WModule) = sum(mod.types) do typ
     error("invalid type $typ")
 end
 
-export!(mod, name, index) = push!(mod.exports, FuncExport(name, index))
+export!(mod, name, index) = push!(mod.exports, FuncExport(name, count(imp -> imp isa FuncImport, mod.imports) + index))
 
 function towasm(io::IO, mod; opt=0, enable_gc=false, enable_reference_types=false)
     args = String[]
@@ -228,6 +228,7 @@ function Base.foreach(f, if_::If)
     end
     for inst in if_.falseinst
         if inst isa Union{Block,Loop,If}
+            f(inst)
             foreach(f, inst)
         else
             f(inst)

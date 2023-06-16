@@ -39,6 +39,7 @@ function reverse_postorder(blocks)
 end
 
 function brindex(relooper::Relooper, l, i=0)
+    i == length(relooper.context) && error("failed to find block $l in context")
     relooper.context[end-i] == l ?
         i : brindex(relooper, l, i+1)
 end

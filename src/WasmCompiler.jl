@@ -10,33 +10,38 @@ include("./optimize.jl")
 
 struct Wat
     obj
+    sexpr
 end
 
-Base.show(io::IO, wat::Wat) = WasmCompiler._printwasm(io, wat.obj)
+Base.show(io::IO, wat::Wat) = WasmCompiler._printwasm(IOContext(io, :print_sexpr => wat.sexpr), wat.obj)
 
-macro code_wasm(opts, ex=nothing)
-    if isnothing(ex)
-        ex, opts = opts, nothing
-    end
+macro code_wasm(exprs...)
+    opts..., ex = exprs
     @assert Meta.isexpr(ex, :call)
+    @assert all(opt -> Meta.isexpr(opt, :(=)), opts)
 
     args = esc(Expr(:tuple, ex.args[begin+1:end]...))
     f = esc(ex.args[1])
 
-    if !isnothing(opts)
-        @assert Meta.isexpr(opts, :(=)) "invalid option $opts"
-        @assert opts.args == [:mod, true] "invalid option $opts"
+    dopts = Dict{Symbol,Bool}()
+    for opt in opts
+        key, val = opt.args
+        dopts[key] = val
+    end
+
+    print_sexpr = get(dopts, :sexpr, false)
+    if get(dopts, :mod, false)
         quote
             types = Tuple{map(Core.Typeof, $(args))...}
             module_ = WasmCompiler.RuntimeModule()
-            WasmCompiler.emit_func!(module_, $f, types)
-            Wat(module_)
+            WasmCompiler.emit_func!(module_, $f, types; optimize=true)
+            Wat(module_, $(print_sexpr))
         end
     else
         quote
             types = Tuple{map(Core.Typeof, $(args))...}
             func = WasmCompiler.emit_func($f, types)
-            Wat(func)
+            Wat(func, $(print_sexpr))
         end
     end
 end

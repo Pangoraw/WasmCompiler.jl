@@ -37,9 +37,12 @@ function _printwasm(io::IO, mod::WModule)
         print(io, INDENT_S^indent, "(")
         _printkw(io, "start")
         print(io, " ")
-        func = mod.funcs[mod.start]
-        if !isnothing(func.name)
-            print_sigil(io, func.name)
+        start = mod.start - count(imp -> imp isa FuncImport, mod.imports)
+        name = start <= 0 ?
+            filter(imp -> imp isa FuncImport, mod.imports)[mod.start].id :
+            mod.funcs[start].name
+        if !isnothing(name)
+            print_sigil(io, name)
         else
             print(io, mod.start - 1)
         end
@@ -54,12 +57,14 @@ function _printwasm(io::IO, mod::WModule)
         print(io, ' ')
         !isnothing(global_.name) && (print_sigil(io, global_.name); print(io, ' '))
         global_.type.mut && (print(io, '('); _printkw(io, "mut"); print(io, ' '))
-        _printwasm(io, global_.type.type)
+        _printwasm(ctx, global_.type.type)
         global_.type.mut && print(io, ')')
         print(io, " (")
         _printwasm(ctx, global_.init)
-        print(io, "))")
+        println(io, "))")
     end
+
+    println(io)
 
     ctx = IOContext(io, :mod => mod)
     for imp in mod.imports
@@ -166,13 +171,20 @@ function print_funcidx(io::IO, funcidx)
         return
     end
 
-    func = mod.funcs[funcidx]
-    if isnothing(func.name)
+    num_func_imports = count(imp -> imp isa FuncImport, mod.imports)
+    name = if funcidx <= num_func_imports
+        func_imports = filter(imp -> imp isa FuncImport, mod.imports)
+        func_imports[funcidx].id
+    else
+        func = mod.funcs[funcidx - num_func_imports]
+        func.name
+    end
+    if isnothing(name)
         print(io, funcidx - 1)
         return
     end
 
-    print_sigil(io, func.name)
+    print_sigil(io, name)
 end
 
 function _printwasm(io::IO, arraytype::ArrayType)
@@ -295,26 +307,46 @@ function _printinst(io::IO, s)
         printstyled(io, s; color=:magenta) : print(io, s)
 end
 
+function print_globalidx(io::IO, idx)
+    wmod = get(io, :mod, nothing)
+    if isnothing(wmod)
+        print(io, idx)
+        return
+    end
+    name = wmod.globals[idx].name
+    if isnothing(name)
+        print(io, idx)
+        return
+    end
+    print_sigil(io, name)
+end
+
+_printwasm(io::IO, g::global_get) = (_printinst(io, "global.get"); print(io, ' '); print_globalidx(io, g.n))
+_printwasm(io::IO, g::global_set) = (_printinst(io, "global.set"); print(io, ' '); print_globalidx(io, g.n))
 _printwasm(io::IO, ::return_) = _printinst(io, "return")
 _printwasm(io::IO, t::throw_) = (_printinst(io, "throw"); print(io, " ", t.tag))
 _printwasm(io::IO, rt::rethrow_) = (_printinst(io, "rethrow"); print(io, " ", rt.label))
 _printwasm(io::IO, s::string_const) = (_printinst(io, "string.const"); print(io, " \"", s.contents, "\""))
-_printwasm(io::IO, c::call) = (_printinst(io, "call"); print(io, ' '); print_funcidx(io, c.func + 1))
+_printwasm(io::IO, c::call) = (_printinst(io, "call"); print(io, ' '); print_funcidx(io, c.func))
 
-_printwasm(io::IO, r::ref_cast) = (_printinst(io, "ref.cast"); print(io, ' '); print_typeidx(io, r.typeidx + 1))
-_printwasm(io::IO, sn::struct_new) = (_printinst(io, "struct.new"); print(io, ' '); print_typeidx(io, sn.typeidx + 1))
+_printwasm(io::IO, ls::local_set) = (_printinst(io, "local.set"), print(io, ' ', ls.n - 1))
+_printwasm(io::IO, lt::local_tee) = (_printinst(io, "local.tee"), print(io, ' ', lt.n - 1))
+_printwasm(io::IO, lg::local_get) = (_printinst(io, "local.get"), print(io, ' ', lg.n - 1))
+
+_printwasm(io::IO, r::Union{ref_cast,ref_null}) = (_printinst(io, replace(string(nameof(typeof(r))), "_" => ".")); print(io, ' '); print_typeidx(io, r.typeidx))
+_printwasm(io::IO, sn::struct_new) = (_printinst(io, "struct.new"); print(io, ' '); print_typeidx(io, sn.typeidx))
 function _printwasm(io::IO, sg::struct_get)
     _printinst(io, "struct.get")
     print(io, ' ')
-    print_typeidx(io, sg.typeidx + 1)
+    print_typeidx(io, sg.typeidx)
     print(io, ' ')
     mod = get(io, :mod, nothing)
     if isnothing(mod)
         print(io, sg.fieldidx)
         return
     end
-    typ = _find_type(mod, sg.typeidx + 1)
-    field = typ.fields[sg.fieldidx + 1]
+    typ = _find_type(mod, sg.typeidx)
+    field = typ.fields[sg.fieldidx]
     if isnothing(field.name)
         print(io, sg.fieldidx)
     else
@@ -348,7 +380,8 @@ function _printwasm(io::IO, instop::InstOperands)
     print(io, INDENT_S^indent, '(')
     if instop.inst isa Block
         wmod = get(io, :mod, nothing)
-        instops = sexpr(wmod, instop.inst.inst)
+        func = get(io, :func, nothing)
+        instops = sexpr(wmod, func, instop.inst.inst)
         _printkw(io, "block")
         _printwasm(io, instop.inst.fntype)
         ctx = IOContext(io, :indent => indent + INDENT_INC)
@@ -401,13 +434,14 @@ function _printwasm(io::IO, f::Func)
             print(io, ")")
         end
     end
-    ctx = IOContext(io, :indent => indent + INDENT_INC)
+    ctx = IOContext(io, :func => f,
+                        :indent => indent + INDENT_INC)
     print_sexpr = get(io, :print_sexpr, false)
     wmod = get(io, :mod, nothing)
     if isnothing(wmod) || !print_sexpr
         _printwasm(ctx, f.inst)
     else
-        for instop in sexpr(wmod, f.inst)
+        for instop in sexpr(wmod, f, f.inst)
             _printwasm(ctx, instop)
         end
     end

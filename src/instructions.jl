@@ -1,3 +1,7 @@
+"""
+Indices in instructions are one-based. therefore when saving for wasm,
+it must be converted to zero-based.
+"""
 const Index = UInt32
 
 abstract type ValType end
@@ -106,6 +110,9 @@ struct local_set <: Inst
     n::Index
 end
 
+abstract type UnaryInst <: Inst end
+abstract type BinaryInst <: Inst end
+
 for (WT, T) in zip((f32, f64), (Float32, Float64))
     @eval struct $(Symbol(WT, "_const")) <: Inst
         val::$T
@@ -113,10 +120,13 @@ for (WT, T) in zip((f32, f64), (Float32, Float64))
     @eval struct $(Symbol(WT, "_load")) <: Inst end
     @eval struct $(Symbol(WT, "_store")) <: Inst end
 
-    for f in ("abs", "neg", "sqrt", "ceil", "floor", "trunc", "nearest",
-        "add", "sub", "mul", "div", "min", "max", "copysign",
+    for f in ("abs", "neg", "sqrt", "ceil", "floor", "trunc", "nearest")
+        @eval struct $(Symbol(WT, "_", f)) <: UnaryInst end
+    end
+
+    for f in ("add", "sub", "mul", "div", "min", "max", "copysign",
         "eq", "ne", "lt", "gt", "le", "ge")
-        @eval struct $(Symbol(WT, "_", f)) <: Inst end
+        @eval struct $(Symbol(WT, "_", f)) <: BinaryInst end
     end
 end
 
@@ -127,11 +137,15 @@ for (WT, T) in zip((i32, i64), (Int32, Int64))
     @eval struct $(Symbol(WT, "_load")) <: Inst end
     @eval struct $(Symbol(WT, "_store")) <: Inst end
 
+    for f in ("clz", "ctz", "popcnt")
+        @eval struct $(Symbol(WT, "_", f)) <: UnaryInst end
+    end
+
     for f in ("add", "sub", "mul", "div_u", "div_s", "rem_u", "rem_s",
         "and", "or", "xor", "shl", "shr_u", "shr_s", "rotl", "rotr",
         "eq", "ne", "lt_u", "lt_s", "gt_u", "gt_s", "le_u", "le_s",
-        "ge_u", "ge_s", "eqz", "clz", "ctz", "popcnt")
-        @eval struct $(Symbol(WT, "_", f)) <: Inst end
+        "ge_u", "ge_s", "eqz")
+        @eval struct $(Symbol(WT, "_", f)) <: BinaryInst end
     end
 end
 

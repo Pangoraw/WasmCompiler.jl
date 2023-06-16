@@ -48,18 +48,17 @@ function remove_unused!(func)
 
     foreach(func) do inst
         inst isa local_get || return
-        uses[inst.n + 1] += 1
+        uses[inst.n] += 1
     end
 
-    unused = setdiff(findall(iszero, uses), 1:nargs)
-
-    newindices = map(n -> n - count(<(n), unused) - 1, 1:length(func.locals))
-    deleteat!(func.locals, unused)
+    unused = setdiff(findall(iszero, uses), 1:nargs) # we don't want to remove params
+    newindices = map(n -> n - count(<(n), unused), 1:length(func.locals))
+    deleteat!(func.locals, unused .- nargs)
 
     map!(func) do inst
         if inst isa local_set || inst isa local_tee || inst isa local_get
-            inst.n + 1 in unused && return inst isa local_set ? drop() : nop()
-            newn = newindices[inst.n + 1]
+            inst.n in unused && return inst isa local_set ? drop() : nop()
+            newn = newindices[inst.n]
             return typeof(inst)(newn)
         end
         inst

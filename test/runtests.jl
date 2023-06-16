@@ -83,8 +83,10 @@ end
 fac(n) = iszero(n) ? one(n) : fac(n-one(n)) * n
 
 @testset "Recursive call" begin
-    f = WC.emit_func(fac, Tuple{Int32}; optimize=true)
-    mod = WC.WModule(f)
+    mod = WC.WModule()
+
+    WC.emit_func!(mod, fac, Tuple{Int32}; optimize=true)
+    WC.export!(mod, "fac", findfirst(f -> f.name == "fac", mod.funcs))
 
     wat = sprint(WC._printwasm, mod)
     wasm = Wasmtime.wat2wasm(wat)
@@ -127,12 +129,12 @@ end
 @testset "Opt: Remove unused" begin
     func = Func("f", FuncType([], []), [i32, i32], [
         i32_const(2),
-        local_set(1),
+        local_set(2),
         i32_const(1),
-        local_set(0),
-        local_get(0),
-        drop(),
+        local_set(1),
         local_get(1),
+        drop(),
+        local_get(2),
     ])
 
     WC.make_tees!(func)

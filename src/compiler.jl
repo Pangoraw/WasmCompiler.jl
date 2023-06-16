@@ -7,43 +7,64 @@ import Core.Compiler: widenconst, PiNode, PhiNode, ReturnNode,
 Returns a `WModule` which can be merged with `bootstrap.wat` using `wasm-merge`.
 """
 RuntimeModule() =
-    WModule([
-        RecursiveZone([
-            StructType("jl-value-t", nothing, [ # index 1
-                StructField(StructRef(true, 2), "jl-value-type", false),
+    WModule(
+        [
+            RecursiveZone([
+                StructType("jl-value-t", nothing, [ # index 1
+                    StructField(StructRef(true, 2), "jl-value-type", false),
+                ]),
+                StructType("jl-datatype-t", 1, [ # index 2
+                    StructField(StructRef(true, 2), "jl-value-type", false),
+                    StructField(StructRef(true, 3), "name", true),
+                    StructField(StructRef(true, 2), "super", true),
+                ]),
+                StructType("jl-typename-t", 1, [ # index 3
+                    StructField(StructRef(true, 2), "jl-value-type", false),
+                    StructField(StructRef(false, 6), "name", false),
+                ]),
+                StructType("jl-string-t", 1, [ # index 4
+                    StructField(StructRef(true, 2), "jl-value-type", false),
+                    StructField(StringRef(), "str", false),
+                ]),
+                ArrayType("jl-values-t", true, jl_value_t), # index 5
+                StructType("jl-simplevector-t", 1, [ # index 6
+                    StructField(StructRef(true, 2), "jl-value-type", false),
+                    StructField(ArrayRef(false, 5), "values", false),
+                ]),
+                StructType("jl-symbol-t", 1, [ # index 7
+                    StructField(StructRef(true, 2), "jl-value-type", false),
+                    StructField(i32, "hash", false),
+                    StructField(StructRef(false, 3), "str", false),
+                ])
             ]),
-            StructType("jl-datatype-t", 1, [ # index 2
-                StructField(StructRef(true, 2), "jl-value-type", false),
-                StructField(StructRef(true, 3), "name", true),
-                StructField(StructRef(true, 2), "super", true),
-            ]),
-            StructType("jl-typename-t", 1, [ # index 3
-                StructField(StructRef(true, 2), "jl-value-type", false),
-                StructField(StructRef(false, 6), "name", false),
-            ]),
-            StructType("jl-string-t", 1, [ # index 4
-                StructField(StructRef(true, 2), "jl-value-type", false),
-                StructField(StringRef(), "str", false),
-            ]),
-            ArrayType("jl-values-t", true, jl_value_t), # index 5
-            StructType("jl-simplevector-t", 1, [ # index 6
-                StructField(StructRef(true, 2), "jl-value-type", false),
-                StructField(ArrayRef(false, 5), "values", false),
-            ]),
-            StructType("jl-symbol-t", 1, [ # index 7
-                StructField(StructRef(true, 2), "jl-value-type", false),
-                StructField(i32, "hash", false),
-                StructField(StructRef(false, 3), "str", false),
-            ])
-        ]),
-        # <-- new structs go here
-       ], [Func("jl_init", FuncType([], []), [], [])], [], [], [], [], [], 2, [
-        FuncImport("bootstrap", "jl_box_int32", "jl-box-int32", FuncType([i32], [StructRef(false, 1)])),
-        FuncImport("bootstrap", "jl_new_datatype", "jl-new-datatype", FuncType([StructRef(false, 6), i32, i32], [StructRef(false, 2)])),
-        FuncImport("bootstrap", "jl_isa", "jl-isa", FuncType([StructRef(false, 1), StructRef(false, 2)], [i32])),
-        GlobalImport("bootstrap", "jl_exception", "jl-exception", GlobalType(true, StructRef(true, 1))),
-        TagImport("bootstrap", "jl_exception_tag", "jl-exception-tag", voidtype),
-    ], [])
+            # <-- new structs go here
+      ],
+      [Func("jl_init", FuncType([], []), [], [])],
+      [], [], [], [], [], jl_init,
+      [
+          FuncImport("bootstrap", "jl_box_int32", "jl-box-int32", FuncType([i32], [jl_datatype_t])),
+          FuncImport("bootstrap", "jl_symbol", "jl-symbol", FuncType([StringRef()], [jl_symbol_t])),
+          FuncImport("bootstrap", "jl_new_datatype", "jl-new-datatype", FuncType([jl_symbol_t, i32, i32], [jl_datatype_t])),
+          FuncImport("bootstrap", "jl_isa", "jl-isa", FuncType([jl_value_t, jl_datatype_t], [i32])),
+          GlobalImport("bootstrap", "jl_exception", "jl-exception", GlobalType(true, jl_value_t)),
+          TagImport("bootstrap", "jl_exception_tag", "jl-exception-tag", voidtype),
+      ], [],
+  )
+
+# Useful indices in RuntimeModule
+
+const jl_box_int32 = 1
+const jl_symbol = 2
+const jl_new_datatype = 3
+const jl_isa = 4
+const jl_init = 5
+
+const jl_value_t = StructRef(false, 1)
+const jl_datatype_t = StructRef(false, 2)
+const jl_typename_t = StructRef(false, 3)
+const jl_string_t = StructRef(false, 4)
+const jl_simplevector_t = StructRef(false, 6)
+const jl_symbol_t = StructRef(false, 7)
 
 struct CodegenContext
     mod::WModule
@@ -58,20 +79,19 @@ CodegenContext(module_=RuntimeModule(); debug=false, optimize=false) =
 
 function emit_datatype!(ctx, @nospecialize(typ))
     haskey(ctx.datatype_dict, typ) && return ctx.datatype_dict[typ]
-    push!(ctx.mod.globals, Global(string(nameof(typ)), GlobalType(true, StructRef(true, 1)), [ref_null(1)]))
-    initidx = findfirst(f -> f.name == "jl_init", ctx.mod.funcs)
-    @assert !isnothing(initidx)
-    init = ctx.mod.funcs[initidx]
+    push!(ctx.mod.globals, Global(string(nameof(typ), "-type"), GlobalType(true, StructRef(true, 2)), [ref_null(2)]))
+    init = ctx.mod.funcs[1]
     global_idx = length(ctx.mod.globals)
     push!(
         init.inst,
         string_const(string(nameof(typ))),
-        call(11),
+        call(jl_symbol),
         i32_const(typ.hash),
         i32_const(typ.flags),
-        call(10),
-        global_set(global_idx - 1),
+        call(jl_new_datatype),
+        global_set(global_idx),
     )
+    ctx.datatype_dict[typ] = global_idx
     return global_idx
 end
 
@@ -125,23 +145,22 @@ function struct_idx!(ctx, @nospecialize(typ))
         mut = ismutabletype(typ)
         push!(ctx.mod.types, StructType(string(nameof(typ)), 1,
           append!([StructField(StructRef(false, 2), "jl-value-type", false)], [
-            StructField(FT <: Numeric ? valtype(FT) : jl_value_t, string(FN), mut)
+            StructField(isnumeric(FT) ? valtype(FT) : jl_value_t, string(FN), mut)
             for (FT, FN) in zip(fieldtypes(typ), fieldnames(typ))
         ])))
+        emit_datatype!(ctx, typ)
         num_types(ctx.mod)
     end
 end
 
 function resolve_arg(inst, n)
-    @assert Meta.isexpr(inst, :call)
+    @assert Meta.isexpr(inst, :call) || Meta.isexpr(inst, :new)
     arg = inst.args[n]
     arg isa GlobalRef && isconst(arg) ?
         getfield(arg.mod, arg.name) : arg
 end
 
-const jl_value_t = StructRef(false, 1)
-
-const Numeric = Union{Int32,UInt32,Int64,UInt64,Bool,Float32,Float64}
+isnumeric(@nospecialize typ) = isprimitivetype(typ) && sizeof(typ) <= sizeof(Int64)
 
 function emit_codes(ctx, ir, nargs)
     (; debug) = ctx
@@ -151,20 +170,20 @@ function emit_codes(ctx, ir, nargs)
 
     # TODO: handle first arg properly
     locals = ValType[
-        argtype <: Numeric ? valtype(argtype) : StructRef(false, struct_idx!(ctx, argtype))
+        isnumeric(argtype) ? valtype(argtype) : StructRef(false, struct_idx!(ctx, argtype))
         for argtype in map(widenconst, @view ir.argtypes[begin+1:begin+nargs])
     ]
 
     ssa_to_local = fill(-1, length(ir.stmts))
 
     function getlocal!(val)
-        val isa Core.Argument && return val.n - 2
+        val isa Core.Argument && return val.n - 1
         val isa SSAValue || error("invalid value $val")
         loc = ssa_to_local[val.id]
         if loc == -1
             local_type = irtype(val)
             push!(locals, local_type)
-            loc = ssa_to_local[val.id] = length(locals) - 1
+            loc = ssa_to_local[val.id] = length(locals)
         end
         loc
     end
@@ -183,7 +202,7 @@ function emit_codes(ctx, ir, nargs)
 
     function irtype(val)
         typ = jltype(val)
-        typ <: Numeric ? valtype(typ) : jl_value_t
+        isnumeric(typ) ? valtype(typ) : jl_value_t
     end
 
     function emit_val(val)
@@ -470,7 +489,7 @@ function emit_codes(ctx, ir, nargs)
                     else
                         throw(CompilationError(types, "invalid getfield $inst"))
                     end
-                    structidx = struct_idx!(ctx, typ) - 1
+                    structidx = struct_idx!(ctx, typ)
                     push!(
                         exprs[bidx],
                         emit_val(inst.args[2]),
@@ -485,7 +504,7 @@ function emit_codes(ctx, ir, nargs)
                         arg = getproperty(arg.mod, arg.name) 
                     end
                     if arg isa DataType
-                        push!(exprs[bidx], global_get(emit_datatype!(ctx, arg) - 1))
+                        push!(exprs[bidx], global_get(emit_datatype!(ctx, arg)))
                         continue
                     end
                     push!(exprs[bidx], emit_val(arg))
@@ -576,10 +595,10 @@ function emit_codes(ctx, ir, nargs)
                 elseif f === Base.isa
                     typ = resolve_arg(inst, 3)
                     push!(exprs[bidx], global_get(emit_datatype!(ctx, typ)))
-                    push!(exprs[bidx], call(10))
+                    push!(exprs[bidx], call(jl_isa))
                 elseif f === Core.throw
                     push!(exprs[bidx], emit_val(inst.args[2]))
-                    push!(exprs[bidx], global_set(0), throw_(0))
+                    push!(exprs[bidx], drop(), throw_(0))
                     continue
                 else
                     throw(CompilationError(types, "Cannot handle call to $f @ $inst"))
@@ -629,21 +648,26 @@ function emit_codes(ctx, ir, nargs)
                 mi = inst.args[1]
                 haskey(ctx.func_dict, mi.specTypes) || emit_func!(ctx, mi.specTypes)
                 funcidx = ctx.func_dict[mi.specTypes]
-                push!(exprs[bidx], call(funcidx - 1))
+                push!(exprs[bidx], call(funcidx))
                 typ = jltype(ssa)
                 typ <: Union{} && (push!(exprs[bidx], drop(), unreachable()); continue)
                 loc = getlocal!(ssa)
                 push!(exprs[bidx], local_set(loc))
             elseif isnothing(inst)
                 push!(exprs[bidx], nop())
+            elseif inst isa GlobalRef
+                push!(emit_val(inst), local_set(getlocal!(ssa)))
             elseif Meta.isexpr(inst, :new)
+                typ = resolve_arg(inst, 1)
+                push!(exprs[bidx], global_get(emit_datatype!(ctx, typ)))
                 for arg in inst.args[begin+1:end]
                     push!(exprs[bidx], emit_val(arg))
                 end
+                structidx = struct_idx!(ctx, typ)
                 push!(
                     exprs[bidx],
-                    struct_new(1), # $jl-XXX
-                    ref_cast(0), # $jl-value-t
+                    struct_new(structidx), # $jl-XXX
+                    ref_cast(1), # $jl-value-t
                     local_set(getlocal!(ssa)),
                 )
             else
@@ -693,7 +717,8 @@ function emit_func!(ctx, types)
     end
     ir, rt = ircodes |> only
 
-    ctx.func_dict[types] = length(ctx.func_dict) + 1
+    num_func_imports = count(imp -> imp isa FuncImport, ctx.mod.imports)
+    ctx.func_dict[types] = num_func_imports + length(ctx.func_dict) + 1
 
     nargs = length(types.parameters) - 1
     exprs, locals = try
@@ -716,7 +741,7 @@ function emit_func!(ctx, types)
         locals[begin:nargs],
         rt <: Union{} ?
           [] :
-          [rt <: Numeric ? valtype(rt) : StructRef(false, struct_idx!(ctx, rt))],
+          [isnumeric(rt) ? valtype(rt) : StructRef(false, struct_idx!(ctx, rt))],
     )
 
     t = types.parameters[1]
