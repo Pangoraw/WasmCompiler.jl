@@ -9,9 +9,10 @@ include("./wat.jl")
 include("./optimize.jl")
 
 struct Wat
-    obj
-    sexpr
+    obj::Any
+    sexpr::Bool
 end
+Wat(obj) = Wat(obj, false)
 
 Base.show(io::IO, wat::Wat) = WasmCompiler._printwasm(IOContext(io, :print_sexpr => wat.sexpr), wat.obj)
 
