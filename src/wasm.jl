@@ -149,6 +149,19 @@ num_types(mod::WModule) = sum(mod.types) do typ
     error("invalid type $typ")
 end
 
+function get_function_type(wmod, funcidx)
+    n_imported = 0
+    for funcimport in wmod.imports
+        funcimport isa FuncImport || continue
+        n_imported += 1
+
+        n_imported == funcidx && return funcimport.fntype
+    end
+
+    funcidx -= n_imported
+    wmod.funcs[funcidx].fntype
+end
+
 export!(mod, name, index) = push!(mod.exports, FuncExport(name, count(imp -> imp isa FuncImport, mod.imports) + index))
 
 function towasm(io::IO, mod; opt=0, enable_gc=false, enable_reference_types=false)

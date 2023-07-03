@@ -102,7 +102,7 @@ end
 struct local_get <: Inst
     n::Index
 end
-"local.tee sets but leaves the value on the stack"
+"`local.tee` is like `local.set` but leaves the value on the stack"
 struct local_tee <: Inst
     n::Index
 end

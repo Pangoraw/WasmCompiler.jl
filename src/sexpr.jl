@@ -1,14 +1,23 @@
-takes(_, _, ::Union{i32_const,i64_const,f32_const,f64_const,local_tee,local_get,global_get,unreachable}) = 0
+takes(_, _, ::Union{i32_const,i64_const,f32_const,f64_const,local_get,global_get,unreachable,nop}) = 0
 takes(_, _, ::UnaryInst) = 1
+takes(_, _, ::Union{local_set,local_tee,global_set,drop}) = 1
 takes(_, _, ::BinaryInst) = 2
-takes(_, _, block::Block) = length(block.fntype.params)
+takes(wmod, _, c::call) = length(get_function_type(wmod, c.func).params)
+takes(_, _, block::Union{If,Block,Loop}) = length(block.fntype.params)
 takes(_, func, ::return_) = length(func.fntype.results)
+takes(_, _, ::select) = 3
 
-produces(_, _, ::Union{unreachable,drop,nop,local_set,global_set}) = 0
+produces(_, _, ::Union{unreachable,drop,nop,local_set,global_set,return_}) = 0
 produces(_, _, inst) = 1
-produces(_, func, ::return_) = length(func.fntype.results)
+produces(wmod, _, c::call) = length(get_function_type(wmod, c.func).results)
 produces(_, _, block::Union{If,Loop,Block}) = length(block.fntype.results)
 
+"""
+    InstOperands(::Inst, operands::Vector{InstOperands})
+
+This struct represent a node in sexpr notation similarly to Binaryen IR which does not
+rely on the implicit stack.
+"""
 struct InstOperands
     inst::Inst
     operands::Vector{InstOperands}
