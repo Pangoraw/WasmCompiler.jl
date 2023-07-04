@@ -8,7 +8,7 @@ takes(_, _, if_::If) = length(if_.fntype.params) + 1
 takes(_, func, ::return_) = length(func.fntype.results)
 takes(_, _, ::select) = 3
 
-produces(_, _, ::Union{unreachable,drop,nop,local_set,global_set,return_}) = 0
+produces(_, _, ::Union{unreachable,drop,nop,local_set,global_set,return_,nop}) = 0
 produces(_, _, inst) = 1
 produces(wmod, _, c::call) = length(get_function_type(wmod, c.func).results)
 produces(_, _, block::Union{If,Loop,Block}) = length(block.fntype.results)
@@ -30,6 +30,7 @@ function sexpr!(wmod, func, expr::Vector{Inst})
 
     while !isempty(expr)
         inst = popfirst!(expr)
+        inst isa nop && continue
         to_take = takes(wmod, func, inst)
 
         operands = InstOperands[]

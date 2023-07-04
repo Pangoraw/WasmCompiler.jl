@@ -164,12 +164,21 @@ end
 
 export!(mod, name, index) = push!(mod.exports, FuncExport(name, count(imp -> imp isa FuncImport, mod.imports) + index))
 
+function make_bootstrap()
+    bootstrap_file = joinpath(@__DIR__, "..", "bootstrap.wat") |> normpath
+    bootstrap_output = joinpath(@__DIR__, "..", "bootstrap.wasm") |> normpath
+    isfile(bootstrap_output) && return bootstrap_output
+    run(`$(wasm_as()) --enable-gc --enable-strings --enable-exception-handling --enable-gc-nn-locals --enable-reference-types $bootstrap_file --output="$(bootstrap_output)"`)
+    bootstrap_output
+end
+
 function towasm(io::IO, mod; opt=0)
     args = String["--enable-gc", "--enable-reference-types", "--enable-strings", "--enable-exception-handling"]
     wat = sprint(_printwasm, mod; context=(:mod => mod, :print_sexpr => true))
+    bootstrap_file = make_bootstrap()
     run(pipeline(IOBuffer(wat),
         `$(wasm_as()) -g $(args) - --output="-"`,
-        `$(wasm_merge()) -g $(args) bootstrap.wasm bootstrap - module --output="-"`,
+        `$(wasm_merge()) -g $(args) $(bootstrap_file) bootstrap - module --output="-"`,
         `$(wasm_opt()) -g -O$opt $(args) - --output="-"`,
         io,
     ))

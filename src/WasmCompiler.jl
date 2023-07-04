@@ -32,17 +32,18 @@ macro code_wasm(exprs...)
     end
 
     print_sexpr = get(dopts, :sexpr, false)
+    optimize = get(dopts, :optimize, false)
     if get(dopts, :mod, false)
         quote
             types = Tuple{map(Core.Typeof, $(args))...}
             module_ = WasmCompiler.RuntimeModule()
-            WasmCompiler.emit_func!(module_, $f, types; optimize=true)
+            WasmCompiler.emit_func!(module_, $f, types; optimize=$optimize)
             Wat(module_, $(print_sexpr))
         end
     else
         quote
             types = Tuple{map(Core.Typeof, $(args))...}
-            func = WasmCompiler.emit_func($f, types)
+            func = WasmCompiler.emit_func($f, types; optimize=$optimize)
             Wat(func, $(print_sexpr))
         end
     end

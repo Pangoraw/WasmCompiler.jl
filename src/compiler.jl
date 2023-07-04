@@ -274,6 +274,8 @@ function emit_codes(ctx, ir, rt, nargs)
         push!(exprs, debug ?
             Inst[i64_const(bidx), drop()] : Inst[])
 
+        block_terminator = nothing
+
         for sidx in b.stmts
             stmt = ir.stmts[sidx]
             inst = stmt[:inst]
@@ -635,7 +637,7 @@ function emit_codes(ctx, ir, rt, nargs)
                 push!(exprs[bidx], emit_val(inst.val))
                 push!(exprs[bidx], local_set(loc))
             elseif inst isa GotoIfNot 
-                push!(exprs[bidx], emit_val(inst.cond))
+                block_terminator = emit_val(inst.cond)
             elseif inst isa ReturnNode
                 if !isdefined(inst, :val)
                     continue
@@ -717,6 +719,8 @@ function emit_codes(ctx, ir, rt, nargs)
                 push!(exprs[bidx], local_set(philoc))
             end
         end
+
+        !isnothing(block_terminator) && push!(exprs[bidx], block_terminator)
     end
 
     exprs, locals
