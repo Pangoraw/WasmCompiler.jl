@@ -42,10 +42,13 @@ RuntimeModule() =
       [Func("jl_init", FuncType([], []), [], [])],
       [], [], [], [], [], jl_init,
       [
-          FuncImport("bootstrap", "jl_box_int32", "jl-box-int32", FuncType([i32], [jl_datatype_t])),
+          FuncImport("bootstrap", "jl_box_int32", "jl-box-int32", FuncType([i32], [jl_value_t])),
           FuncImport("bootstrap", "jl_symbol", "jl-symbol", FuncType([StringRef()], [jl_symbol_t])),
           FuncImport("bootstrap", "jl_new_datatype", "jl-new-datatype", FuncType([jl_symbol_t, i32, i32], [jl_datatype_t])),
           FuncImport("bootstrap", "jl_isa", "jl-isa", FuncType([jl_value_t, jl_datatype_t], [i32])),
+          FuncImport("bootstrap", "jl_box_int64", "jl-box-int64", FuncType([i64], [jl_value_t])),
+          FuncImport("bootstrap", "jl_box_float32", "jl-box-float32", FuncType([f32], [jl_value_t])),
+          FuncImport("bootstrap", "jl_box_float64", "jl-box-float64", FuncType([f64], [jl_value_t])),
           GlobalImport("bootstrap", "jl_exception", "jl-exception", GlobalType(true, jl_value_t)),
           TagImport("bootstrap", "jl_exception_tag", "jl-exception-tag", voidtype),
       ], [],
@@ -57,7 +60,10 @@ const jl_box_int32 = 1
 const jl_symbol = 2
 const jl_new_datatype = 3
 const jl_isa = 4
-const jl_init = 5
+const jl_box_int64 = 5
+const jl_box_float32 = 6
+const jl_box_float64 = 7
+const jl_init = 8
 
 const jl_value_t = StructRef(false, 1)
 const jl_datatype_t = StructRef(false, 2)
@@ -160,9 +166,27 @@ function resolve_arg(inst, n)
         getfield(arg.mod, arg.name) : arg
 end
 
+function convert_val!(inst, from, to)
+    if from == to
+        push!(inst, nop())
+    elseif from isa StructRef && to == jl_value_t
+        push!(inst, ref_cast(jl_value_t.typeidx))
+    elseif from == i32 && to == jl_value_t
+        push!(inst, call(jl_box_int32), ref_cast(jl_value_t.typeidx))
+    elseif from == i64 && to == jl_value_t
+        push!(inst, call(jl_box_int64), ref_cast(jl_value_t.typeidx))
+    elseif from == f32 && to == jl_value_t
+        push!(inst, call(jl_box_float32), ref_cast(jl_value_t.typeidx))
+    elseif from == f64 && to == jl_value_t
+        push!(inst, call(jl_box_float64), ref_cast(jl_value_t.typeidx))
+    else
+        error("cannot convert value from $from to $to")
+    end
+end
+
 isnumeric(@nospecialize typ) = isprimitivetype(typ) && sizeof(typ) <= sizeof(Int64)
 
-function emit_codes(ctx, ir, nargs)
+function emit_codes(ctx, ir, rt, nargs)
     (; debug) = ctx
     exprs = Vector{Inst}[]
 
@@ -616,7 +640,12 @@ function emit_codes(ctx, ir, nargs)
                 if !isdefined(inst, :val)
                     continue
                 end
-                push!(exprs[bidx], emit_val(inst.val))
+                rt_type = isnumeric(rt) ? valtype(rt) : jl_value_t
+                push!(
+                    exprs[bidx],
+                    emit_val(inst.val),
+                )
+                convert_val!(exprs[bidx], irtype(inst.val), rt_type)
                 # push!(exprs[bidx], return_())
             elseif inst isa GotoNode 
                 # pass
@@ -718,11 +747,11 @@ function emit_func!(ctx, types)
     ir, rt = ircodes |> only
 
     num_func_imports = count(imp -> imp isa FuncImport, ctx.mod.imports)
-    ctx.func_dict[types] = num_func_imports + length(ctx.func_dict) + 1
+    func_idx = ctx.func_dict[types] = num_func_imports + length(ctx.func_dict) + 1
 
     nargs = length(types.parameters) - 1
     exprs, locals = try
-        emit_codes(ctx, ir, nargs)
+        emit_codes(ctx, ir, rt, nargs)
     catch err
         err isa CompilationError && rethrow()
         # display(ir)
@@ -766,6 +795,12 @@ function emit_func!(ctx, types)
     end
 
     pushfirst!(ctx.mod.funcs, f)
+    if !isnothing(ctx.mod.start) && ctx.mod.start > num_func_imports
+        if func_idx == ctx.mod.start
+            push!(ctx.mod.exports, FuncExport(name, func_idx))
+        end
+        ctx.mod.start += 1
+    end
 
     f
 end

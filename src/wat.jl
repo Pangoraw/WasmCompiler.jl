@@ -108,15 +108,10 @@ function _printwasm(io::IO, mod::WModule)
         _printkw(io, "export")
         print(io, " ")
         if exp isa FuncExport
-            func = mod.funcs[exp.func]
             print(io, "\"$(exp.name)\" ", "(")
             _printkw(io, "func")
             print(io, " ")
-            if !isnothing(func.name)
-                print_sigil(io, func.name)
-            else
-                print(io, exp.func - 1)
-            end
+            print_funcidx(ctx, exp.func)
             print(io, ")")
         else
             error("cannot handle export $exp")
@@ -216,17 +211,18 @@ function _printwasm(io::IO, structtype::StructType)
     !isnothing(structtype.name) && (print(io, ' '); print_sigil(io, structtype.name))
     println(io)
     indent += INDENT_INC
-    print(io, INDENT_S^indent, "("); _printkw(io, "struct")
-    indent += INDENT_INC
 
     if !isnothing(structtype.subidx)
-        println(io)
         print(io, INDENT_S^indent, "(")
         _printkw(io, "sub")
         print(io, ' ')
         print_typeidx(io, structtype.subidx)
         indent += INDENT_INC
+        println(io)
     end
+
+    print(io, INDENT_S^indent, "("); _printkw(io, "struct")
+    indent += INDENT_INC
 
     for field in structtype.fields
         println(io)
@@ -245,7 +241,7 @@ function _printwasm(io::IO, structtype::StructType)
 end
 
 _printwasm(io::IO, val::ValType) = show(io, val)
-_printwasm(io::IO, ::StringRef) = (print(io, '('); _printkw(io, "ref"); print(io, " "); _printkw(io, "string"))
+_printwasm(io::IO, ::StringRef) = (print(io, '('); _printkw(io, "ref"); print(io, " "); _printkw(io, "string"); print(io, ')'))
 function _printwasm(io::IO, ref::StructRef)
     print(io, "(")
     _printkw(io, "ref"); print(io, " ")
@@ -378,11 +374,11 @@ end
 function _printwasm(io::IO, instop::InstOperands)
     indent = get(io, :indent, INDENT_INC)
     print(io, INDENT_S^indent, '(')
-    if instop.inst isa Block
+    if instop.inst isa Union{Block,Loop}
         wmod = get(io, :mod, nothing)
         func = get(io, :func, nothing)
         instops = sexpr(wmod, func, instop.inst.inst)
-        _printkw(io, "block")
+        _printkw(io, instop.inst isa Block ? "block" : "loop")
         _printwasm(io, instop.inst.fntype)
         ctx = IOContext(io, :indent => indent + INDENT_INC)
         for instop in instops
@@ -390,7 +386,35 @@ function _printwasm(io::IO, instop::InstOperands)
             _printwasm(ctx, instop)
         end
         print(io, ')')
+        return
+    end
+    if instop.inst isa If
+        wmod = get(io, :mod, nothing)
+        func = get(io, :func, nothing)
+        trueinstops = sexpr(wmod, func, instop.inst.trueinst)
+        falseinstops = sexpr(wmod, func, instop.inst.falseinst)
+        _printkw(io, "if")
         println(io)
+        ctx = IOContext(io, :indent => indent + INDENT_INC)
+        _printwasm(ctx, instop.operands[1])
+        println(io)
+        print(io, INDENT_S^(indent+INDENT_INC), "(")
+        _printkw(io, "then")
+        print(io, " ")
+        ctx = IOContext(io, :indent => indent + 2INDENT_INC)
+        for op in trueinstops
+            println(io)
+            _printwasm(ctx, op)
+        end
+        println(io, ")")
+        print(io, INDENT_S^(indent+INDENT_INC), "(")
+        _printkw(io, "else")
+        print(io, " ")
+        for op in falseinstops
+            println(io)
+            _printwasm(ctx, op)
+        end
+        print(io, "))")
         return
     end
     ctx = IOContext(io, :indent => 0)
@@ -430,7 +454,7 @@ function _printwasm(io::IO, f::Func)
             print(io, INDENT_S^(indent+INDENT_INC), "(")
             _printkw(io, "local")
             println(io, " ")
-            _printwasm(ctx, loc)
+            _printwasm(io, loc)
             print(io, ")")
         end
     end
@@ -440,12 +464,13 @@ function _printwasm(io::IO, f::Func)
     wmod = get(io, :mod, nothing)
     if isnothing(wmod) || !print_sexpr
         _printwasm(ctx, f.inst)
+        println(io)
     else
         for instop in sexpr(wmod, f, f.inst)
             _printwasm(ctx, instop)
+            println(io)
         end
     end
-    println(io)
     print(io, INDENT_S^indent, ")")
 end
 

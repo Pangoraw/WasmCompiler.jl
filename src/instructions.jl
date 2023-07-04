@@ -137,14 +137,14 @@ for (WT, T) in zip((i32, i64), (Int32, Int64))
     @eval struct $(Symbol(WT, "_load")) <: Inst end
     @eval struct $(Symbol(WT, "_store")) <: Inst end
 
-    for f in ("clz", "ctz", "popcnt")
+    for f in ("clz", "ctz", "popcnt", "eqz")
         @eval struct $(Symbol(WT, "_", f)) <: UnaryInst end
     end
 
     for f in ("add", "sub", "mul", "div_u", "div_s", "rem_u", "rem_s",
         "and", "or", "xor", "shl", "shr_u", "shr_s", "rotl", "rotr",
         "eq", "ne", "lt_u", "lt_s", "gt_u", "gt_s", "le_u", "le_s",
-        "ge_u", "ge_s", "eqz")
+        "ge_u", "ge_s")
         @eval struct $(Symbol(WT, "_", f)) <: BinaryInst end
     end
 end

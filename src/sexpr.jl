@@ -1,9 +1,10 @@
-takes(_, _, ::Union{i32_const,i64_const,f32_const,f64_const,local_get,global_get,unreachable,nop}) = 0
+takes(_, _, ::Union{i32_const,i64_const,f32_const,f64_const,local_get,global_get,unreachable,nop,br}) = 0
 takes(_, _, ::UnaryInst) = 1
-takes(_, _, ::Union{local_set,local_tee,global_set,drop}) = 1
+takes(_, _, ::Union{local_set,local_tee,global_set,drop,ref_cast,struct_get,i64_extend_i32_s}) = 1
 takes(_, _, ::BinaryInst) = 2
 takes(wmod, _, c::call) = length(get_function_type(wmod, c.func).params)
-takes(_, _, block::Union{If,Block,Loop}) = length(block.fntype.params)
+takes(_, _, block::Union{Block,Loop}) = length(block.fntype.params)
+takes(_, _, if_::If) = length(if_.fntype.params) + 1
 takes(_, func, ::return_) = length(func.fntype.results)
 takes(_, _, ::select) = 3
 
@@ -35,6 +36,7 @@ function sexpr!(wmod, func, expr::Vector{Inst})
 
         taken = 0
         while taken < to_take
+            isempty(out) && error("stack is empty for expr $(sprint(_printwasm, inst))")
             op = pop!(out)
             prod = produces(wmod, func, op)
             iszero(prod) && error("invalid stack order")

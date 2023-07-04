@@ -1,0 +1,9 @@
+[[binaryen]]
+arch = "x86_64"
+git-tree-sha1 = "102d2b436512512b0b216af67d0719b6ef175d99"
+libc = "glibc"
+os = "linux"
+
+    [[binaryen.download]]
+    sha256 = "0a2c3c22bdb4d017f0cf2cefb3635b616c4802e6e5dc84c82fdfe4dee42fe7b7"
+    url = "https://github.com/WebAssembly/binaryen/releases/download/version_114/binaryen-version_114-x86_64-linux.tar.gz"

@@ -1,5 +1,6 @@
 import WasmCompiler as WC
 using WasmCompiler: Func, i32, FuncType, local_set, local_get, i32_const, drop
+using WasmCompiler: @code_wasm
 
 import Wasmtime
 import Wasmtime: WasmEngine, WasmStore, WasmModule, WasmInstance
@@ -142,3 +143,5 @@ end
 
     @test length(func.locals) == 1
 end
+
+include("./pow.jl")

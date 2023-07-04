@@ -164,14 +164,13 @@ end
 
 export!(mod, name, index) = push!(mod.exports, FuncExport(name, count(imp -> imp isa FuncImport, mod.imports) + index))
 
-function towasm(io::IO, mod; opt=0, enable_gc=false, enable_reference_types=false)
-    args = String[]
-    enable_gc && push!(args, "--enable-gc")
-    enable_reference_types && push!(args, "--enable-reference-types")
-    wat = sprint(_printwasm, mod)
+function towasm(io::IO, mod; opt=0)
+    args = String["--enable-gc", "--enable-reference-types", "--enable-strings", "--enable-exception-handling"]
+    wat = sprint(_printwasm, mod; context=(:mod => mod, :print_sexpr => true))
     run(pipeline(IOBuffer(wat),
-        `wat2wasm $(args...) - --output="-"`,
-        `wasm-opt -O$opt $(args...) - --output="-"`,
+        `$(wasm_as()) -g $(args) - --output="-"`,
+        `$(wasm_merge()) -g $(args) bootstrap.wasm bootstrap - module --output="-"`,
+        `$(wasm_opt()) -g -O$opt $(args) - --output="-"`,
         io,
     ))
     io

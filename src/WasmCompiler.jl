@@ -1,5 +1,6 @@
 module WasmCompiler
 
+include("./binaryen.jl")
 include("./instructions.jl")
 include("./wasm.jl")
 include("./compiler.jl")
