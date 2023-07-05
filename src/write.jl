@@ -32,7 +32,7 @@ module LEB128
 end
 
 const MAGIC = UInt8[0x00, 0x61, 0x73, 0x6D]
-const VERSION = UInt8[0x01, 0x00, 0x00, 0x00]
+const WASM_VERSION = UInt8[0x01, 0x00, 0x00, 0x00]
 
 wwrite(io::IO, args...) = sum(arg -> wwrite(io, arg), args)
 wwrite(io::IO, x::Integer) = LEB128.encode(io, x)
@@ -175,7 +175,7 @@ end
 
 function wwrite(io::IO, wmod::WModule)
     n = write(io, MAGIC)
-    n += write(io, VERSION)
+    n += write(io, WASM_VERSION)
  
     # 1. Type Section
     fntypes::Vector{FuncType} = unique(map(f -> f.fntype, wmod.funcs))
@@ -266,6 +266,36 @@ function wwrite(io::IO, wmod::WModule)
     write(sio, buf)
     # 0.2 Locals Name
     # ...
+    buf = take!(sio)
+    n += wwrite(io, 0x00, UInt32(length(buf)))
+    n += write(io, buf)
+
+    # 0. Producers Section
+    sio = IOBuffer()
+    wwrite(sio, UInt32(length("producers")))
+    write(sio, "producers")
+
+    language_name = "Julia"
+    language_version = string(VERSION)
+    tool_name = string(nameof(@__MODULE__))
+    tool_version = "v0.0.1"
+
+    wwrite(sio, UInt32(2), UInt32(length("language")))
+    write(sio, "language")
+    wwrite(sio, UInt32(1), UInt32(length(language_name)))
+    write(sio, language_name)
+
+    wwrite(sio, UInt32(length(language_version)))
+    write(sio, language_version)
+
+    wwrite(sio, UInt32(length("processed-by")))
+    write(sio, "processed-by")
+    wwrite(sio, UInt32(1), UInt32(length(tool_name)))
+    write(sio, tool_name)
+
+    wwrite(sio, UInt32(length(tool_version)))
+    write(sio, tool_version)
+
     buf = take!(sio)
     n += wwrite(io, 0x00, UInt32(length(buf)))
     n += write(io, buf)
