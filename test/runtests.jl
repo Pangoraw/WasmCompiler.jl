@@ -18,8 +18,11 @@ using Test
         [], [WC.FuncExport("add", 1)],
     )
 
-    wat = sprint(WC._printwasm, mod)
-    wasm = Wasmtime.wat2wasm(wat)
+    # wat = sprint(WC._printwasm, mod)
+    # wasm = Wasmtime.wat2wasm(wat)
+    io = IOBuffer()
+    WC.wwrite(io, mod)
+    wasm = take!(io) |> Wasmtime.WasmByteVec
 
     engine = WasmEngine()
     store = WasmStore(engine)
