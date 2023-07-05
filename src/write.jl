@@ -254,7 +254,7 @@ function wwrite(io::IO, wmod::WModule)
     # ...
     # 0.1 Functions Name
     ssio = IOBuffer()
-    named_functions = filter(((i, f),) -> !isnothing(f.name), enumerate(wmod.funcs))
+    named_functions = filter(((i, f),) -> !isnothing(f.name), collect(enumerate(wmod.funcs)))
     n_imported = count(imp -> imp isa FuncImport, ctx.imports)
     wwrite(ssio, UInt32(length(named_functions)))
     for (i, func) in named_functions
