@@ -37,18 +37,21 @@ RuntimeModule() =
                     StructField(StructRef(false, 3), "str", false),
                 ])
             ]),
-            # <-- new structs go here
       ],
       [Func("jl_init", FuncType([], []), [], [])],
       [], [], [], [], [], jl_init,
       [
-          FuncImport("bootstrap", "jl_box_int32", "jl-box-int32", FuncType([i32], [jl_value_t])),
           FuncImport("bootstrap", "jl_symbol", "jl-symbol", FuncType([StringRef()], [jl_symbol_t])),
           FuncImport("bootstrap", "jl_new_datatype", "jl-new-datatype", FuncType([jl_symbol_t, i32, i32], [jl_datatype_t])),
           FuncImport("bootstrap", "jl_isa", "jl-isa", FuncType([jl_value_t, jl_datatype_t], [i32])),
+          FuncImport("bootstrap", "jl_box_int32", "jl-box-int32", FuncType([i32], [jl_value_t])),
           FuncImport("bootstrap", "jl_box_int64", "jl-box-int64", FuncType([i64], [jl_value_t])),
           FuncImport("bootstrap", "jl_box_float32", "jl-box-float32", FuncType([f32], [jl_value_t])),
           FuncImport("bootstrap", "jl_box_float64", "jl-box-float64", FuncType([f64], [jl_value_t])),
+          FuncImport("bootstrap", "jl_unbox_int32", "jl-box-int32", FuncType([jl_value_t], [i32])),
+          FuncImport("bootstrap", "jl_unbox_int64", "jl-box-int64", FuncType([jl_value_t], [i64])),
+          FuncImport("bootstrap", "jl_unbox_float32", "jl-box-float32", FuncType([jl_value_t], [f32])),
+          FuncImport("bootstrap", "jl_unbox_float64", "jl-box-float64", FuncType([jl_value_t], [f64])),
           GlobalImport("bootstrap", "jl_exception", "jl-exception", GlobalType(true, jl_value_t)),
           TagImport("bootstrap", "jl_exception_tag", "jl-exception-tag", voidtype),
       ], [],
@@ -56,14 +59,19 @@ RuntimeModule() =
 
 # Useful indices in RuntimeModule
 
-const jl_box_int32 = 1
-const jl_symbol = 2
-const jl_new_datatype = 3
-const jl_isa = 4
+const jl_symbol = 1
+const jl_new_datatype = 2
+const jl_isa = 3
+const jl_box_int32 = 4
 const jl_box_int64 = 5
 const jl_box_float32 = 6
 const jl_box_float64 = 7
-const jl_init = 8
+const jl_unbox_int32 = 8
+const jl_unbox_int64 = 9
+const jl_unbox_float32 = 10
+const jl_unbox_float64 = 11
+
+const jl_init = 12
 
 const jl_value_t = StructRef(false, 1)
 const jl_datatype_t = StructRef(false, 2)
@@ -171,6 +179,14 @@ function convert_val!(inst, from, to)
         push!(inst, nop())
     elseif from isa StructRef && to == jl_value_t
         push!(inst, ref_cast(jl_value_t.typeidx))
+    elseif from == jl_value_t && to == i32
+        push!(inst, call(jl_unbox_int32))
+    elseif from == jl_value_t && to == i64
+        push!(inst, call(jl_unbox_int64))
+    elseif from == jl_value_t && to == f32
+        push!(inst, call(jl_unbox_float32))
+    elseif from == jl_value_t && to == f64
+        push!(inst, call(jl_unbox_float64))
     elseif from == i32 && to == jl_value_t
         push!(inst, call(jl_box_int32), ref_cast(jl_value_t.typeidx))
     elseif from == i64 && to == jl_value_t

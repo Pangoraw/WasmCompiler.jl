@@ -109,28 +109,26 @@
         (struct.new $jl-int32-t
             (ref.as_non_null (global.get $jl-int32-type))
             (local.get 0)))
-    (func $jl-unbox-int32 (export "jl_unbox_int32") (param (ref $jl-int32-t)) (result i32)
-        (struct.get $jl-int32-t $val (local.get 0)))
+    (func $jl-unbox-int32 (export "jl_unbox_int32") (param (ref $jl-value-t)) (result i32)
+        (struct.get $jl-int32-t $val (ref.cast $jl-int32-t (local.get 0))))
     (func $jl-box-int64 (export "jl_box_int64") (param i64) (result (ref $jl-int64-t))
         (struct.new $jl-int64-t
             (ref.as_non_null (global.get $jl-int64-type))
             (local.get 0)))
     (func $jl-unbox-int64 (export "jl_unbox_int64") (param (ref $jl-int64-t)) (result i64)
-        (struct.get $jl-int64-t $val (local.get 0)))
+        (struct.get $jl-int64-t $val (ref.cast $jl-int64-t (local.get 0))))
     (func $jl-box-float32 (export "jl_box_float32") (param f32) (result (ref $jl-float32-t))
         (struct.new $jl-float32-t
             (ref.as_non_null (global.get $jl-float32-type))
             (local.get 0)))
     (func $jl-unbox-float32 (export "jl_unbox_float32") (param (ref $jl-float32-t)) (result f32)
-        (struct.get $jl-float32-t $val
-            (local.get 0)))
+        (struct.get $jl-float32-t $val (ref.cast $jl-float32-t (local.get 0))))
     (func $jl-box-float64 (export "jl_box_float64") (param f64) (result (ref $jl-float64-t))
         (struct.new $jl-float64-t
             (ref.as_non_null (global.get $jl-float64-type))
             (local.get 0)))
     (func $jl-unbox-float64 (export "jl_unbox_float64") (param (ref $jl-float64-t)) (result f64)
-        (struct.get $jl-float64-t $val
-            (local.get 0)))
+        (struct.get $jl-float64-t $val (ref.cast $jl-float64-t (local.get 0))))
 
     (type $jl-nonnull-values-t (array (ref $jl-value-t)))
     (type $jl-tuple-t
