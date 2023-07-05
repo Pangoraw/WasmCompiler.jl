@@ -242,4 +242,31 @@ function wwrite(io::IO, wmod::WModule)
     n += wwrite(io, UInt32(length(buf)))
     n += write(io, buf)
 
+    # 11. Data Section
+    # TODO
+
+    # 0. Name Section
+    sio = IOBuffer()
+    wwrite(sio, UInt32(length("name")))
+    write(sio, "name")
+
+    # 0.0 Module Name
+    # ...
+    # 0.1 Functions Name
+    ssio = IOBuffer()
+    named_functions = filter(((i, f),) -> !isnothing(f.name), enumerate(wmod.funcs))
+    n_imported = count(imp -> imp isa FuncImport, ctx.imports)
+    wwrite(ssio, UInt32(length(named_functions)))
+    for (i, func) in named_functions
+        wwrite(ssio, Index(n_imported + i - 1), UInt32(length(f.name)))
+        write(ssio, f.name)
+    end
+    buf = take!(ssio)
+    wwrite(sio, 0x01, UInt32(length(buf)))
+    write(sio, buf)
+    # 0.2 Locals Name
+    # ...
+    buf = take!(sio)
+    n += wwrite(io, 0x00, UInt32(length(buf)))
+    n += write(io, buf)
 end
