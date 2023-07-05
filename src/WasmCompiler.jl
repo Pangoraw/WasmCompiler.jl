@@ -7,6 +7,7 @@ include("./compiler.jl")
 include("./relooper.jl")
 include("./sexpr.jl")
 include("./wat.jl")
+include("./write.jl")
 include("./optimize.jl")
 
 struct Wat

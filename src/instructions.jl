@@ -209,7 +209,7 @@ select() = select(nothing)
 struct nop <: Inst end
 struct unreachable <: TerminatorInst end
 struct br <: TerminatorInst
-    label::Int
+    label::Index
 end
 struct br_if <: Inst
     label::Inst
