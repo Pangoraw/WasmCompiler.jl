@@ -29,6 +29,46 @@ module LEB128
         end
         n
     end
+
+    decode(T::Type{<:Signed}, io::IO) = read_signed(T, io)
+    decode(T, io::IO) = read_unsigned(T, io)
+
+    # https://en.wikipedia.org/wiki/LEB128
+    function read_unsigned(T, io::IO)
+        result = zero(T)
+        shift = 0
+    
+        while true
+            byte = read(io, UInt8)
+            result |= T(byte & 0x7f) << shift
+    
+            if (byte & 0x80) == 0x00
+                break
+            end
+    
+            shift += 7
+        end
+    
+        result
+    end
+
+    function read_signed(T, io::IO)
+        result = zero(T)
+        shift = 0
+    
+        while true
+            byte = read(io, UInt8)
+            result |= T(byte & 0x7f) << shift
+            shift += 7
+    
+            if (byte & 0x80) == 0x00
+                if shift < sizeof(T) && (byte & 0x40) != 0x00
+                    return result | (~0 << shift)
+                end
+                return result
+            end
+        end
+    end
 end
 
 const MAGIC = UInt8[0x00, 0x61, 0x73, 0x6D]
@@ -185,7 +225,6 @@ wwrite(io::IO, c::f32_const) = wwrite(io, 0x43, c.val)
 wwrite(io::IO, c::f64_const) = wwrite(io, 0x44, c.val)
 
 wwrite(io::IO, c::call) = wwrite(io, 0x10, c.func - one(c.func))
-wwrite(io::IO, ::nop) = write(io, 0x01)
 function wwrite(io::IO, block::Union{Loop,Block})
     n = write(io, block isa Loop ? 0x03 : 0x02)
     @assert block.fntype == voidtype
@@ -198,8 +237,10 @@ function wwrite(io::IO, if_::If)
     @assert if_.fntype == voidtype
     n += write(io, 0x40) # voidtype
     n += wwrite(io, if_.trueinst)
-    n += write(io, 0x05)
-    n += wwrite(io, if_.falseinst)
+    if !isempty(if_.falseinst)
+        n += write(io, 0x05)
+        n += wwrite(io, if_.falseinst)
+    end
     n += write(io, 0x0B)
 end
 
@@ -251,8 +292,7 @@ function wwrite(io::IO, wmod::WModule)
     wwrite(sio, UInt32(length(wmod.exports)))
     for exp in wmod.exports
         if exp isa FuncExport
-            wwrite(sio, UInt32(length(exp.name)))
-            write(sio, exp.name)
+            wwrite(sio, exp.name)
             wwrite(sio, 0x00, exp.func - one(exp.func))
         else
             error("unsupported export $exp")
