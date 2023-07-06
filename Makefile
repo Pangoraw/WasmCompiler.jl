@@ -8,11 +8,5 @@ WAT_DESUGAR=wat-desugar $(BINARYEN_FEATURES)
 bootstrap.wasm: bootstrap.wat
 	$(WASM_AS) -g -o $@ $<
 
-runtime.wasm: runtime.wat
-	$(WASM_AS) -g -o $@ $<
-
-merge.wasm: bootstrap.wasm runtime.wasm
-	$(WASM_MERGE) bootstrap.wasm bootstrap runtime.wasm runtime -o $@
-
 clean:
-	rm bootstrap.wasm runtime.wasm merge.wasm
+	rm bootstrap.wasm
