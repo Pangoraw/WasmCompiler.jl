@@ -51,3 +51,9 @@ function sexpr!(wmod, func, expr::Vector{Inst})
 
     out
 end
+
+function emit!(out, op)
+    foldl(emit!, op.operands; init=out)
+    push!(out, op.inst)
+end
+flatten(ops::Vector{InstOperands}) = foldl(emit!, ops; init=Inst[])
