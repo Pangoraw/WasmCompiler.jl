@@ -35,6 +35,7 @@ const MAGIC = UInt8[0x00, 0x61, 0x73, 0x6D]
 const WASM_VERSION = UInt8[0x01, 0x00, 0x00, 0x00]
 
 wwrite(io::IO, args...) = sum(arg -> wwrite(io, arg), args)
+wwrite(io::IO, x::UInt8) = write(io, x)
 wwrite(io::IO, x::Integer) = LEB128.encode(io, x)
 wwrite(io::IO, ::WasmInt32) = write(io, 0x7F)
 wwrite(io::IO, ::WasmInt64) = write(io, 0x7E)
