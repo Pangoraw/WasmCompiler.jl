@@ -212,6 +212,7 @@ function wwrite(io::IO, expr::Vector{Inst})
     n
 end
 
+wwrite(io::IO, s::String) = wwrite(io, Vector{UInt8}(s))
 function wwrite(io::IO, a::Vector)
     n = wwrite(io, UInt32(length(a)))
     for el in a
@@ -235,18 +236,14 @@ function wwrite(io::IO, wmod::WModule)
     sio = IOBuffer()
     wwrite(sio, fntypes)
     buf = take!(sio)
-    n += write(io, 0x01)
-    n += wwrite(io, UInt32(length(buf)))
-    n += write(io, buf)
+    n += wwrite(io, 0x01, buf)
 
     # 3. Func Section
     fntype_indices = map(f -> UInt32(findfirst(==(f.fntype), fntypes)) - one(UInt32), wmod.funcs)
-    n += write(io, 0x03)
     sio = IOBuffer()
     wwrite(sio, fntype_indices)
     buf = take!(sio)
-    n += wwrite(io, UInt32(length(buf)))
-    n += write(io, buf)
+    n += wwrite(io, 0x03, buf)
 
     # 7. Export Section
     sio = IOBuffer()
@@ -261,16 +258,14 @@ function wwrite(io::IO, wmod::WModule)
         end
     end
     buf = take!(sio)
-    n += wwrite(io, 0x07, UInt32(length(buf)))
-    n += write(io, buf)
+    n += wwrite(io, 0x07, buf)
 
     # 8. Start Section
     if !isnothing(wmod.start)
         sio = IOBuffer()
         wwrite(sio, wmod.start - one(wmod.start))
         buf = take!(sio)
-        n += wwrite(io, 0x08, UInt32(length(buf)))
-        n += write(io, buf)
+        n += wwrite(io, 0x08, buf)
     end
 
     # 10. Code Section
@@ -287,21 +282,18 @@ function wwrite(io::IO, wmod::WModule)
         wwrite(cio, func.inst)
         wwrite(cio, 0x0B)
         buf = take!(cio)
-        wwrite(sio, UInt32(length(buf)))
-        write(sio, buf)
+        wwrite(sio, buf)
     end
     buf = take!(sio)
     n += write(io, 0x0A)
-    n += wwrite(io, UInt32(length(buf)))
-    n += write(io, buf)
+    n += wwrite(io, buf)
 
     # 11. Data Section
     # TODO
 
     # 0. Name Section
     sio = IOBuffer()
-    wwrite(sio, UInt32(length("name")))
-    write(sio, "name")
+    wwrite(sio, "name")
 
     # 0.0 Module Name
     # ...
@@ -315,39 +307,24 @@ function wwrite(io::IO, wmod::WModule)
         write(ssio, f.name)
     end
     buf = take!(ssio)
-    wwrite(sio, 0x01, UInt32(length(buf)))
-    write(sio, buf)
+    wwrite(sio, 0x01, buf)
     # 0.2 Locals Name
     # ...
     buf = take!(sio)
-    n += wwrite(io, 0x00, UInt32(length(buf)))
-    n += write(io, buf)
+    n += wwrite(io, 0x00, buf)
 
     # 0. Producers Section
     sio = IOBuffer()
-    wwrite(sio, UInt32(length("producers")))
-    write(sio, "producers")
+    wwrite(sio, "producers")
 
     language_name = "Julia"
     language_version = string(VERSION)
     tool_name = string(nameof(@__MODULE__))
     tool_version = "v0.0.1"
 
-    wwrite(sio, UInt32(2), UInt32(length("language")))
-    write(sio, "language")
-    wwrite(sio, UInt32(1), UInt32(length(language_name)))
-    write(sio, language_name)
-
-    wwrite(sio, UInt32(length(language_version)))
-    write(sio, language_version)
-
-    wwrite(sio, UInt32(length("processed-by")))
-    write(sio, "processed-by")
-    wwrite(sio, UInt32(1), UInt32(length(tool_name)))
-    write(sio, tool_name)
-
-    wwrite(sio, UInt32(length(tool_version)))
-    write(sio, tool_version)
+    wwrite(sio, UInt32(2))
+    wwrite(sio, "language", UInt32(1), language_name, language_version)
+    wwrite(sio, "processed-by", UInt32(1), tool_name, tool_version)
 
     buf = take!(sio)
     n += wwrite(io, 0x00, UInt32(length(buf)))
