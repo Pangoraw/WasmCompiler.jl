@@ -406,15 +406,19 @@ function _printwasm(io::IO, instop::InstOperands)
             println(io)
             _printwasm(ctx, op)
         end
-        println(io, ")")
-        print(io, INDENT_S^(indent+INDENT_INC), "(")
-        _printkw(io, "else")
-        print(io, " ")
-        for op in falseinstops
+        print(io, ")")
+        if !isempty(falseinstops)
             println(io)
-            _printwasm(ctx, op)
+            print(io, INDENT_S^(indent+INDENT_INC), "(")
+            _printkw(io, "else")
+            print(io, " ")
+            for op in falseinstops
+                println(io)
+                _printwasm(ctx, op)
+            end
+            print(io, ")")
         end
-        print(io, "))")
+        print(io, ")")
         return
     end
     ctx = IOContext(io, :indent => 0)
@@ -499,11 +503,13 @@ function _printwasm(io::IO, i::If)
     _printwasm(ctx, i.trueinst)
     println(io)
     print(io, INDENT_S^indent)
-    _printkw(io, "else")
-    println(io)
-    _printwasm(ctx, i.falseinst)
-    println(io)
-    print(io, INDENT_S^indent)
+    if !isempty(i.falseinst)
+      _printkw(io, "else")
+      println(io)
+      _printwasm(ctx, i.falseinst)
+      println(io)
+      print(io, INDENT_S^indent)
+    end
     _printkw(io, "end")
 end
 

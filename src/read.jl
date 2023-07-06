@@ -23,7 +23,7 @@ function wread(io::IO, ::Type{FuncType})
     FuncType(params, results)
 end
 
-function wread(io::IO, T::Type{Vector})
+function wread(io::IO, ::Type{T}) where {T <: Vector}
     out = T()
     len = LEB128.decode(io, UInt32)
     for _ in 1:len
@@ -33,11 +33,14 @@ function wread(io::IO, T::Type{Vector})
 end
 
 function read_block_type(io::IO)
-    if peek(io) == 0x40
+    next = peek(io)
+    if next == 0x40
         read(io, UInt8)
         return FuncType([], [])
+    elseif next in 0x7C:0x7F
+        return FuncType([], [wread(io, ValType)])
     else
-        error("unsupported block type")
+        error("unsupported block type $(next)")
     end
 end
 
@@ -106,7 +109,8 @@ function wread(io::IO)
     wmod = WModule()
 
     # Preamble
-    @assert read(io, length(MAGIC)) == MAGIC
+    magic = read(io, length(MAGIC))
+    @assert magic  == MAGIC "got wrong MAGIC -> $magic"
     @assert read(io, length(WASM_VERSION)) == WASM_VERSION
 
     local fntypes
@@ -115,6 +119,8 @@ function wread(io::IO)
         sid = read(io, UInt8)
         section_length = LEB128.decode(io, UInt32)
         pos = position(io)
+
+        @debug "reading section" sid section_length
 
         if sid == 0x00
             # 0. Custom Section
@@ -128,7 +134,7 @@ function wread(io::IO)
                     n_named_functions = LEB128.decode(io, UInt32)
                     n_imports = count(imp -> imp isa FuncImport, wmod.imports)
                     for _ in 1:n_named_functions
-                        func_index = LEB128.decode(io, UInt32) - n_imported + 1
+                        func_index = LEB128.decode(io, UInt32) - n_imports + 1
                         name_length = LEB128.decode(io, UInt32)
                         name = String(read(io, name_length))
                         (; fntype, locals, inst) = wmod.funcs[func_index]
@@ -150,11 +156,12 @@ function wread(io::IO)
             # 3. Func Section
             n_funcs = LEB128.decode(io, UInt32)
             for _ in 1:n_funcs
+                index = LEB128.decode(io, UInt32) + 1
                 push!(
                     wmod.funcs,
                     Func(
-                        nothing, fntypes[LEB128.decode(io, UInt32) + 1],
-                        copy(fntypes[LEB128.decode(io, UInt32) + 1].params),
+                        nothing, fntypes[index],
+                        copy(fntypes[index].params),
                         [],
                     )
                 )
@@ -162,14 +169,17 @@ function wread(io::IO)
         elseif sid == 0x07
             # 7. Export Section
             n_exports = LEB128.decode(io, UInt32)
-            tag = read(io, UInt8)
-            if tag == 0x00
+            @debug "export section" n_exports
+            for _ in 1:n_exports
                 name_length = LEB128.decode(io, UInt32)
                 name = String(read(io, name_length))
-                index = one(Index) + LEB128.decode(io, UInt32)
-                push!(wmod.exports, FuncExport(name, index))
-            else
-                error("unsupported export tag $tag")
+                tag = read(io, UInt8)
+                if tag == 0x00
+                    index = one(Index) + LEB128.decode(io, UInt32)
+                    push!(wmod.exports, FuncExport(name, index))
+                else
+                    error("unsupported export tag $tag for export named \"$name\"")
+                end
             end
         elseif sid == 0x08
             # 8. Start Section

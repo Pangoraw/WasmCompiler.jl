@@ -30,8 +30,8 @@ module LEB128
         n
     end
 
-    decode(T::Type{<:Signed}, io::IO) = read_signed(T, io)
-    decode(T, io::IO) = read_unsigned(T, io)
+    decode(io::IO, T::Type{<:Signed}) = read_signed(T, io)
+    decode(io::IO, T) = read_unsigned(T, io)
 
     # https://en.wikipedia.org/wiki/LEB128
     function read_unsigned(T, io::IO)
@@ -83,8 +83,9 @@ wwrite(io::IO, ::WasmFloat32) = write(io, 0x7D)
 wwrite(io::IO, ::WasmFloat64) = write(io, 0x7C)
 
 const opcodes = Dict{Any,UInt8}(
-    return_             => 0x0F,
     unreachable         => 0x00,
+    nop                 => 0x01,
+    return_             => 0x0F,
     drop                => 0x1A,
     select              => 0x1B,
     i32_eqz             => 0x45,
@@ -292,8 +293,7 @@ function wwrite(io::IO, wmod::WModule)
     wwrite(sio, UInt32(length(wmod.exports)))
     for exp in wmod.exports
         if exp isa FuncExport
-            wwrite(sio, exp.name)
-            wwrite(sio, 0x00, exp.func - one(exp.func))
+            wwrite(sio, exp.name, 0x00, exp.func - one(exp.func))
         else
             error("unsupported export $exp")
         end
@@ -358,10 +358,10 @@ function wwrite(io::IO, wmod::WModule)
     sio = IOBuffer()
     wwrite(sio, "producers")
 
-    language_name = "Julia"
+    language_name = "julia"
     language_version = string(VERSION)
-    tool_name = string(nameof(@__MODULE__))
-    tool_version = "v0.0.1"
+    tool_name = string(nameof(@__MODULE__)) * ".jl"
+    tool_version = "v0.1.0"
 
     wwrite(sio, UInt32(2))
     wwrite(sio, "language", UInt32(1), language_name, language_version)
