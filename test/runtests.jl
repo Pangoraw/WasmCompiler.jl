@@ -18,11 +18,7 @@ using Test
         [], [WC.FuncExport("add", 1)],
     )
 
-    # wat = sprint(WC._printwasm, mod)
-    # wasm = Wasmtime.wat2wasm(wat)
-    io = IOBuffer()
-    WC.wwrite(io, mod)
-    wasm = take!(io) |> Wasmtime.WasmByteVec
+    wasm = WC.wasm(mod) |> Wasmtime.WasmByteVec
 
     engine = WasmEngine()
     store = WasmStore(engine)
@@ -50,8 +46,7 @@ end
     f = WC.emit_func(func, Tuple{Int32,Int32}; optimize=true)
     mod = WC.WModule(f)
 
-    wat = sprint(WC._printwasm, mod)
-    wasm = Wasmtime.wat2wasm(wat)
+    wasm = WC.wasm(mod) |> Wasmtime.WasmByteVec
 
     engine = WasmEngine()
     store = WasmStore(engine)
@@ -92,8 +87,7 @@ fac(n) = iszero(n) ? one(n) : fac(n-one(n)) * n
     WC.emit_func!(mod, fac, Tuple{Int32}; optimize=true)
     WC.export!(mod, "fac", findfirst(f -> f.name == "fac", mod.funcs))
 
-    wat = sprint(WC._printwasm, mod)
-    wasm = Wasmtime.wat2wasm(wat)
+    wasm = WC.wasm(mod) |> Wasmtime.WasmByteVec
 
     engine = WasmEngine()
     store = WasmStore(engine)
@@ -116,8 +110,7 @@ f(a, b) = g(a - 1, b)
     WC.emit_func!(mod, f, Tuple{Int32,Int32}; optimize=true)
     WC.export!(mod, "f", findfirst(f -> f.name == "f", mod.funcs))
 
-    wat = sprint(WC._printwasm, mod)
-    wasm = Wasmtime.wat2wasm(wat)
+    wasm = WC.wasm(mod) |> Wasmtime.WasmByteVec
 
     engine = Wasmtime.WasmEngine()
     store = Wasmtime.WasmStore(engine)
