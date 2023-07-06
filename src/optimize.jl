@@ -53,7 +53,7 @@ function remove_unused!(func)
 
     unused = setdiff(findall(iszero, uses), 1:nargs) # we don't want to remove params
     newindices = map(n -> n - count(<(n), unused), 1:length(func.locals))
-    deleteat!(func.locals, unused .- nargs)
+    deleteat!(func.locals, unused)
 
     map!(func) do inst
         if inst isa local_set || inst isa local_tee || inst isa local_get

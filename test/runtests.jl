@@ -1,9 +1,11 @@
 import WasmCompiler as WC
-using WasmCompiler: Func, i32, FuncType, local_set, local_get, i32_const, drop
-using WasmCompiler: @code_wasm
+using WasmCompiler:
+    Func, i32, i64, FuncType, local_set,
+    local_get, i32_const, i64_const, drop,
+    @code_wasm
 
 import Wasmtime
-import Wasmtime: WasmEngine, WasmStore, WasmModule, WasmInstance
+using Wasmtime: WasmEngine, WasmStore, WasmModule, WasmInstance
 using Test
 
 @testset "add" begin
@@ -124,8 +126,8 @@ f(a, b) = g(a - 1, b)
 end
 
 @testset "Opt: Remove unused" begin
-    func = Func("f", FuncType([], []), [i32, i32], [
-        i32_const(2),
+    func = Func("f", FuncType([], []), [i32, i64], [
+        i64_const(2),
         local_set(2),
         i32_const(1),
         local_set(1),
@@ -138,6 +140,7 @@ end
     WC.remove_unused!(func)
 
     @test length(func.locals) == 1
+    @test only(func.locals) == i64
 end
 
 include("./pow.jl")
