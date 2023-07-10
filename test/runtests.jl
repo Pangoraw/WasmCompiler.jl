@@ -52,7 +52,6 @@ end
     # mod = WC.optimize(mod)
 
     wasm = WC.wasm(mod)
-    write("func.wasm", wasm)
     wasm = wasm |> Wasmtime.WasmByteVec
 
     engine = WasmEngine()

@@ -315,12 +315,23 @@ function wwrite(io::IO, wmod::WModule)
     for (; locals, fntype, inst) in wmod.funcs
         cio = IOBuffer() # code buffer
         nparams = length(fntype.params)
-        wwrite(cio, UInt32(length(locals) - nparams))
-        i = nparams+1
-        while i <= length(locals)
+
+        n_local_groups = 0
+        i = nparams + 1
+        while i <= lastindex(locals)
+            n = 0
+            n_local_groups += 1
+            while i+n <= lastindex(locals) && locals[i] == locals[i+n]
+                n += 1
+            end
+            i += n
+        end
+        wwrite(cio, UInt32(n_local_groups))
+        i = nparams + 1
+        while i <= lastindex(locals)
             n = 1
             loc = locals[i]
-            while i+n <= length(locals) && loc == locals[i+n]
+            while i+n <= lastindex(locals) && loc == locals[i+n]
                 n += 1
             end
             wwrite(cio, UInt32(n))
