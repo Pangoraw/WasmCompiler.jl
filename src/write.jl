@@ -312,15 +312,22 @@ function wwrite(io::IO, wmod::WModule)
     # 10. Code Section
     sio = IOBuffer()
     wwrite(sio, UInt32(length(wmod.funcs)))
-    for func in wmod.funcs
+    for (; locals, fntype, inst) in wmod.funcs
         cio = IOBuffer() # code buffer
-        nparams = length(func.fntype.params)
-        wwrite(cio, UInt32(length(func.locals) - nparams))
-        for loc in Iterators.drop(func.locals, nparams)
-            wwrite(cio, UInt32(1)) # TODO: can optimize by grouping
+        nparams = length(fntype.params)
+        wwrite(cio, UInt32(length(locals) - nparams))
+        i = nparams+1
+        while i <= length(locals)
+            n = 1
+            loc = locals[i]
+            while i+n <= length(locals) && loc == locals[i+n]
+                n += 1
+            end
+            wwrite(cio, UInt32(n))
             wwrite(cio, loc)
+            i += n
         end
-        wwrite(cio, func.inst)
+        wwrite(cio, inst)
         wwrite(cio, 0x0B)
         buf = take!(cio)
         wwrite(sio, buf)
