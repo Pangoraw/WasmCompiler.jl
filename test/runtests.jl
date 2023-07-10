@@ -97,14 +97,14 @@ fac(n) = iszero(n) ? one(n) : fac(n-one(n)) * n
     wasm = WC.wasm(mod) |> Wasmtime.WasmByteVec
 
     engine = WasmEngine()
-    store = WasmStore(engine)
-    wmodule = WasmModule(store, wasm)
-    instance = WasmInstance(store, wmodule)
+    store = WasmtimeStore(engine)
+    wmodule = WasmtimeModule(engine, wasm)
+    instance = WasmtimeInstance(store, wmodule)
 
     wfac = Wasmtime.exports(instance).fac
 
     for x in Int32(0):Int32(10)
-        @test convert(Int32, only(wfac(x))) == fac(x)
+        @test only(wfac(x)) == fac(x)
     end
 end
 
