@@ -4,10 +4,10 @@ const INDENT_INC = 2
 function _printwasm(io::IO, mod::WModule)
     print(io, "(")
     _printkw(io, "module")
-    println(io)
     indent = INDENT_INC
 
     for type in mod.types
+        println(io)
         if type isa StructType
             ctx = IOContext(io, :indent => indent, :mod => mod)
             _printwasm(ctx, type)
@@ -24,16 +24,17 @@ function _printwasm(io::IO, mod::WModule)
         end
     end
 
-    println(io)
+    !isempty(mod.types) && println(io)
 
     ctx = IOContext(io, :indent => indent, :mod => mod)
     for func in mod.funcs
-        _printwasm(ctx, func)
         println(io)
+        _printwasm(ctx, func)
         println(io)
     end
 
     if !isnothing(mod.start)
+        println(io)
         print(io, INDENT_S^indent, "(")
         _printkw(io, "start")
         print(io, " ")
@@ -64,7 +65,7 @@ function _printwasm(io::IO, mod::WModule)
         println(io, "))")
     end
 
-    println(io)
+    !isempty(mod.globals) && println(io)
 
     ctx = IOContext(io, :mod => mod)
     for imp in mod.imports
@@ -102,7 +103,8 @@ function _printwasm(io::IO, mod::WModule)
         println(io, ")")
     end
 
-    println(io)
+    !isempty(mod.imports) && println(io)
+
     for exp in mod.exports
         print(io, INDENT_S^indent, "(")
         _printkw(io, "export")
