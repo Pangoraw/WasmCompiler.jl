@@ -58,6 +58,9 @@ struct FuncType <: WasmType
     results::Vector{ValType}
 end
 
+Base.:(==)(fntype1::FuncType, fntype2::FuncType) =
+    fntype1.params == fntype2.params && fntype1.results == fntype2.results
+
 abstract type Inst end
 
 abstract type ContainerInst <: Inst end
@@ -166,39 +169,39 @@ struct i64_store32 <: Inst end
 struct i64_load32_s <: Inst end
 struct i64_load32_u <: Inst end
 
-struct i64_extend32_s <: Inst end
-struct i64_extend_i32_s <: Inst end
-struct i64_extend_i32_u <: Inst end
+struct i64_extend32_s <: UnaryInst end
+struct i64_extend_i32_s <: UnaryInst end
+struct i64_extend_i32_u <: UnaryInst end
 
-struct i32_reinterpret_f32 <: Inst end
-struct i64_reinterpret_f64 <: Inst end
-struct f32_reinterpret_i32 <: Inst end
-struct f64_reinterpret_i64 <: Inst end
+struct i32_reinterpret_f32 <: UnaryInst end
+struct i64_reinterpret_f64 <: UnaryInst end
+struct f32_reinterpret_i32 <: UnaryInst end
+struct f64_reinterpret_i64 <: UnaryInst end
 
-struct f64_promote_f32 <: Inst end
+struct f64_promote_f32 <: UnaryInst end
 
-struct f32_convert_i32_s <: Inst end
-struct f32_convert_i32_u <: Inst end
-struct f32_convert_i64_s <: Inst end
-struct f32_convert_i64_u <: Inst end
+struct f32_convert_i32_s <: UnaryInst end
+struct f32_convert_i32_u <: UnaryInst end
+struct f32_convert_i64_s <: UnaryInst end
+struct f32_convert_i64_u <: UnaryInst end
 
-struct f64_convert_i64_s <: Inst end
-struct f64_convert_i64_u <: Inst end
-struct f64_convert_i32_s <: Inst end
-struct f64_convert_i32_u <: Inst end
+struct f64_convert_i64_s <: UnaryInst end
+struct f64_convert_i64_u <: UnaryInst end
+struct f64_convert_i32_s <: UnaryInst end
+struct f64_convert_i32_u <: UnaryInst end
 
-struct i32_trunc_f32_s <: Inst end
-struct i32_trunc_f32_u <: Inst end
-struct i32_trunc_f64_s <: Inst end
-struct i32_trunc_f64_u <: Inst end
+struct i32_trunc_f32_s <: UnaryInst end
+struct i32_trunc_f32_u <: UnaryInst end
+struct i32_trunc_f64_s <: UnaryInst end
+struct i32_trunc_f64_u <: UnaryInst end
 
-struct i64_trunc_f32_s <: Inst end
-struct i64_trunc_f32_u <: Inst end
-struct i64_trunc_f64_s <: Inst end
-struct i64_trunc_f64_u <: Inst end
+struct i64_trunc_f32_s <: UnaryInst end
+struct i64_trunc_f32_u <: UnaryInst end
+struct i64_trunc_f64_s <: UnaryInst end
+struct i64_trunc_f64_u <: UnaryInst end
 
-struct i32_wrap_i64 <: Inst end
-struct f32_demote_f64 <: Inst end
+struct i32_wrap_i64 <: UnaryInst end
+struct f32_demote_f64 <: UnaryInst end
 
 struct drop <: Inst end
 struct select <: Inst

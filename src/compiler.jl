@@ -781,8 +781,9 @@ function emit_func!(ctx, types)
     relooper = Relooper(exprs, ir)
 
     @debug "relooping" c = sprint(Base.show_tuple_as_call, :ok, types)
+    content = reloop!(relooper)
     expr = Inst[
-        reloop!(relooper),
+        content,
         unreachable(), # CF will go through a ReturnNode
     ]
 
@@ -809,7 +810,12 @@ function emit_func!(ctx, types)
     # _printwasm(stdout, f)
 
     f = if ctx.optimize
-        f |> make_tees! |> remove_unused! |> remove_nops!
+        f |>
+            make_tees! |>
+            remove_unused! |>
+            remove_nops! |>
+            merge_blocks! |>
+            remove_return!
     else
         f
     end

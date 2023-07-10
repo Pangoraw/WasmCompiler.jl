@@ -27,7 +27,7 @@ macro code_wasm(exprs...)
     args = esc(Expr(:tuple, ex.args[begin+1:end]...))
     f = esc(ex.args[1])
 
-    dopts = Dict{Symbol,Bool}()
+    dopts = Dict{Symbol,Any}()
     for opt in opts
         key, val = opt.args
         dopts[key] = val
@@ -35,10 +35,13 @@ macro code_wasm(exprs...)
 
     print_sexpr = get(dopts, :sexpr, false)
     optimize = get(dopts, :optimize, false)
-    if get(dopts, :mod, false)
+    wmod = get(dopts, :mod, false)
+    if wmod !== false
         quote
             types = Tuple{map(Core.Typeof, $(args))...}
-            module_ = WasmCompiler.WModule() # WasmCompiler.RuntimeModule()
+            module_ = $(wmod !== :runtime) ?
+                WasmCompiler.WModule() :
+                WasmCompiler.RuntimeModule()
             WasmCompiler.emit_func!(module_, $f, types; optimize=$optimize)
             Wat(module_, $(print_sexpr))
         end

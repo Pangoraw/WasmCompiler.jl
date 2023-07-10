@@ -222,8 +222,8 @@ wwrite(io::IO, lg::global_set) = wwrite(io, 0x24, lg.n - one(lg.n))
 
 wwrite(io::IO, c::i32_const) = wwrite(io, 0x41, c.val)
 wwrite(io::IO, c::i64_const) = wwrite(io, 0x42, c.val)
-wwrite(io::IO, c::f32_const) = wwrite(io, 0x43, c.val)
-wwrite(io::IO, c::f64_const) = wwrite(io, 0x44, c.val)
+wwrite(io::IO, c::f32_const) = write(io, 0x43, c.val)
+wwrite(io::IO, c::f64_const) = write(io, 0x44, c.val)
 
 wwrite(io::IO, c::call) = wwrite(io, 0x10, c.func - one(c.func))
 function wwrite(io::IO, block::Union{Loop,Block})

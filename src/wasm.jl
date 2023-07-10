@@ -22,14 +22,6 @@ struct RecursiveZone <: WasmType
     structs::Vector{GCType}
 end
 
-function jl_to_struct(T)
-    mut = ismutabletype(T)
-    StructType(nameof(T) |> string, [
-        StructField(valtype(FT), FN isa Symbol ? string(FN) : nothing, mut)
-        for (FT, FN) in zip(fieldtypes(T), fieldnames(T))
-    ])
-end
-
 const voidtype = FuncType([], [])
 
 struct MemoryType <: WasmType

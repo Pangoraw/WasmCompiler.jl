@@ -1,11 +1,13 @@
 import WasmCompiler as WC
 using WasmCompiler:
-    Func, i32, i64, FuncType, local_set,
+    Func, i32, i64, FuncType, Inst, local_set,
     local_get, i32_const, i64_const, drop,
+    br, Block, If, nop,
     @code_wasm
 
 import Wasmtime
 using Wasmtime: WasmEngine, WasmStore, WasmModule, WasmInstance
+using Wasmtime: WasmtimeStore, WasmtimeModule, WasmtimeInstance
 using Test
 
 @testset "add" begin
@@ -35,31 +37,34 @@ using Test
     end
 end
 
-@testset "conds" begin
-    function func(a, b)
-        x = if a >= Int32(2)
-            b + a
-        else
-            b + Int32(2)
-        end
-        return x
+function func(a, b)
+    x = if a >= Int32(2)
+        b + a
+    else
+        b + Int32(2)
     end
+    return x
+end
 
+@testset "conds" begin
     f = WC.emit_func(func, Tuple{Int32,Int32}; optimize=true)
     mod = WC.WModule(f)
+    # mod = WC.optimize(mod)
 
-    wasm = WC.wasm(mod) |> Wasmtime.WasmByteVec
+    wasm = WC.wasm(mod)
+    write("func.wasm", wasm)
+    wasm = wasm |> Wasmtime.WasmByteVec
 
     engine = WasmEngine()
-    store = WasmStore(engine)
-    wmodule = WasmModule(store, wasm)
-    instance = WasmInstance(store, wmodule)
+    store = WasmtimeStore(engine)
+    wmodule = WasmtimeModule(engine, wasm)
+    instance = WasmtimeInstance(store, wmodule)
 
     wfunc = Wasmtime.exports(instance).func
 
     for _ in 1:10
         x, y = rand(Int32, 2)
-        @test only(wfunc(x, y)) == Wasmtime.WasmInt32(func(x, y))
+        @test only(wfunc(x, y)) == func(x, y)
     end
 end
 
@@ -141,6 +146,29 @@ end
 
     @test length(func.locals) == 1
     @test only(func.locals) == i64
+end
+
+@testset "Merge untargeted blocks" begin
+    code = Inst[
+        Block(FuncType([], []), Inst[
+            i32_const(1),
+            i32_const(2),
+            drop(),
+            drop(),
+            Block(FuncType([], []), Inst[
+                br(1),
+            ])
+        ]),
+        nop(),
+    ]
+
+    code = WC._explore_blocks!(code, Int[])
+    num_blocks = 0
+    foreach(code) do inst
+        inst isa Block && (num_blocks += 1)
+    end
+    @test num_blocks == 1
+    @test last(first(code).inst) == br(0)
 end
 
 include("./pow.jl")

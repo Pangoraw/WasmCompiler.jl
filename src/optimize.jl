@@ -37,6 +37,17 @@ function _make_tees!(instlist)
     instlist
 end
 
+function remove_return!(f)
+    isempty(f.inst) && return
+    if f.inst[end] isa unreachable &&
+        f.inst[end-1] isa return_
+        pop!(f.inst); pop!(f.inst)
+    elseif f.inst[end] isa return_
+        pop!(f.inst)
+    end
+    f
+end
+
 """
     remove_unused!(func::Func)::Func
 
@@ -77,23 +88,57 @@ function remove_nops!(func)
 end
 
 function merge_blocks!(func)
-    i = firstindex(func.inst)
+    _explore_blocks!(func.inst, [])
+    func
+end
 
-    while i <= length(func.inst)
-        inst = func.inst[i]
+function _renumber_brs!(inst, deleted)
+    if inst isa br
+        inst.label > deleted && return br(inst.label - 1)
+        inst.label == deleted && error("invalid branch")
+        return inst
+    elseif inst isa Union{Block,Loop}
+        map!(inst -> _renumber_brs!(inst, deleted + 1), inst.inst, inst.inst)
+    elseif inst isa If
+        map!(inst -> _renumber_brs!(inst, deleted + 1), inst.trueinst, inst.trueinst)
+        map!(inst -> _renumber_brs!(inst, deleted + 1), inst.falseinst, inst.falseinst)
+    end
+    return inst
+end
 
-        if inst isa Block && inst.fntype == voidtype
-            # NOTE: this is wrong if block has br insts
-            deleteat!(func.inst, i)
-            for newinst in inst.inst
-                insert!(func.inst, i, newinst)
-                i += 1
+function _explore_blocks!(expr, stack)
+    i = firstindex(expr)
+
+    while i <= length(expr)
+        inst = expr[i]
+
+        if inst isa br
+            stack[end-inst.label] += 1
+        elseif inst isa Loop 
+            push!(stack, 0)
+            _explore_blocks!(inst.inst, stack)
+            pop!(stack)
+        elseif inst isa If
+            push!(stack, 0)
+            _explore_blocks!(inst.falseinst, stack)
+            _explore_blocks!(inst.trueinst, stack)
+            pop!(stack)
+        elseif inst isa Block
+            push!(stack, 0)
+            _explore_blocks!(inst.inst, stack)
+            count = pop!(stack)
+
+            if count == 0 && inst.fntype == voidtype
+                deleteat!(expr, i)
+                for newinst in inst.inst
+                    insert!(expr, i, _renumber_brs!(newinst, 0))
+                    i += 1
+                end
             end
         end
 
         i += 1
     end
 
-    func
+    expr
 end
-
