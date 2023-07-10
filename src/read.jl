@@ -10,9 +10,30 @@ function wread(io::IO, ::Type{ValType})
         return f32
     elseif x == 0x7C
         return f64
+    elseif x == 0x67
+        return StructRef(false, 1)
     else
         error("unknown type byte $x")
     end
+end
+
+function wread(io::IO, ::Type{StructField})
+    StructField(
+        wread(io, ValType),
+        nothing,
+        LEB128.decode(io, UInt32) != 0x00,
+    )
+end
+
+function wread(io::IO, ::Type{StructType})
+    code = LEB128.decode(io, Int64)
+    fields = wread(io, Vector{StructField})
+    subidx = if code == -Int8(0x21)
+        nothing
+    elseif code == -Int8(0x30)
+        @assert false "invalid sub"
+    end
+    StructType(nothing, subidx, fields)
 end
 
 function wread(io::IO, ::Type{FuncType})
@@ -151,7 +172,50 @@ function wread(io::IO)
             end
         elseif sid == 0x01
             # 1. Type Section
-            fntypes = wread(io, Vector{FuncType})
+            n_types = LEB128.decode(io, UInt32)
+            @debug "Type section" n_types
+            for _ in 1:n_types
+                tag = peek(io)
+                if tag == 0x60
+                    push!(fntypes, wread(io, FuncType))
+                elseif tag == 0x4f
+                    opcode = LEB128.decode(io, Int64)
+                    if opcode == -Int8(0x31) # rec dt*
+                        n_types_in_rec = LEB128.decode(io, UInt32)
+                        for subtype in 1:n_types_in_rec
+                            code = LEB128.decode(io, Int64)
+                            if code == -Int8(0x21) # struct ft*
+                                n_fields = LEB128.decode(io, UInt32)
+                                fields = StructField[]
+                                @debug "struct" n_fields
+                                for _ in n_fields
+                                    code = LEB128.decode(io, Int64)
+                                    if code == -Int8(0x14) # struct
+                                        ht = LEB128.decode(io, Int64)
+                                        mut = read(io, UInt8)
+                                        if ht >= 0
+                                            @debug "base type" ht mut
+                                            push!(fields, StructField(StructRef(true, ht), nothing, mut != 0))
+                                        elseif ht == -Int8(0x19)
+                                            @debug "heap type struct" ht
+                                        else
+                                            @warn "skipping heap type" ht
+                                        end
+                                    else
+                                        @warn "invalid field" code
+                                    end
+                                end
+                            elseif code == -Int8(0x22) # array ft
+                                @debug "array"
+                            elseif code == -Int8(0x30) # sub
+                                @debug "sub"
+                            elseif code == -Int8(0x32) # sub final
+                                @debug "sub final"
+                            end
+                        end
+                    end
+                end
+            end
         elseif sid == 0x03
             # 3. Func Section
             n_funcs = LEB128.decode(io, UInt32)

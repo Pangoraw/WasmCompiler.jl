@@ -1,4 +1,4 @@
-takes(_, _, ::Union{i32_const,i64_const,f32_const,f64_const,local_get,global_get,unreachable,nop,br}) = 0
+takes(_, _, ::Union{i32_const,i64_const,f32_const,f64_const,local_get,global_get,unreachable,string_const,nop,br}) = 0
 takes(_, _, ::UnaryInst) = 1
 takes(_, _, ::Union{local_set,local_tee,global_set,drop,ref_cast,struct_get}) = 1
 takes(_, _, ::BinaryInst) = 2
