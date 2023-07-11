@@ -161,16 +161,16 @@ a an assignment from the value of the if.
 Tranforms this construct
 
 ```wat
-(if (local.get $cond)
-    (then (local.set $x (i32.const 1)))
-    (else (local.set $x (i32.const 2))))
+(if (local.get \$cond)
+    (then (local.set \$x (i32.const 1)))
+    (else (local.set \$x (i32.const 2))))
 ```
 
 into
 
 ```wat
-(local.set $x
-    (if (local.get $cond)
+(local.set \$x
+    (if (local.get \$cond)
         (then (i32.const 1))
         (else (i32.const 2))))
 ```
