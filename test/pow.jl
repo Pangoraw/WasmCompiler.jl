@@ -23,3 +23,27 @@ end
         @test convert(Int32, only(wpow(Int32(x), Int32(n)))) == Int32(x ^ n)
     end
 end
+
+@testset "Optimize ratio" begin
+    mod_opt = (@code_wasm mod=true optimize=true pow(Int32(1), Int32(1))).obj
+    mod_unopt = (@code_wasm mod=true optimize=false pow(Int32(1), Int32(1))).obj
+
+    size_opt = length(WC.wasm(mod_opt))
+    size_unopt = length(WC.wasm(mod_unopt))
+
+    ratio = (size_unopt - size_opt) / size_opt
+    @test ratio >= 0.
+
+    print("Opt(pow)    ")
+    printstyled(size_opt, "B", color=:cyan)
+    println()
+    print("Unopt(pow)  ")
+    printstyled(size_unopt, "B", color=:cyan)
+    println()
+    print("           ")
+    printstyled(ratio > 0 ? "+" : "",
+                round(100ratio; digits=0),
+                "%";
+                color=ratio > 0 ? :green : :red)
+    println()
+end
