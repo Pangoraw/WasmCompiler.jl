@@ -111,7 +111,7 @@ function nestwithin!(relooper::Relooper, bidx, mergenodes)
             push!(relooper.context, -1)
             push!(relooper.exprs[bidx],
                 If(
-                    voidtype,
+                    FuncType([], []),
                     Inst[dobranch(relooper, bidx, truedest)],
                     Inst[dobranch(relooper, bidx, falsedest)],
                 ),
@@ -124,7 +124,7 @@ function nestwithin!(relooper::Relooper, bidx, mergenodes)
     (y_n, ys...) = mergenodes
 
     push!(relooper.context, y_n)
-    codeforx = Block(voidtype, nestwithin!(relooper, bidx, ys))
+    codeforx = Block(FuncType([], []), nestwithin!(relooper, bidx, ys))
     @assert y_n == pop!(relooper.context)
     Inst[
         codeforx,
@@ -143,12 +143,12 @@ function donode!(relooper::Relooper, bidx)
         push!(relooper.context, bidx)
         codeforx = nestwithin!(relooper, bidx, filter(b -> ismergenode(relooper, b), toplace))
         @assert bidx == pop!(relooper.context)
-        Loop(voidtype, codeforx)
+        Loop(FuncType([], []), codeforx)
     else
         push!(relooper.context, -1)
         codeforx = nestwithin!(relooper, bidx, filter(b -> ismergenode(relooper, b), toplace))
         @assert -1 == pop!(relooper.context)
-        Block(voidtype, codeforx)
+        Block(FuncType([], []), codeforx)
     end
 end
 

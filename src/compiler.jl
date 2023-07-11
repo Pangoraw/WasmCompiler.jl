@@ -815,7 +815,8 @@ function emit_func!(ctx, types)
             remove_unused! |>
             remove_nops! |>
             merge_blocks! |>
-            remove_return!
+            remove_return! |>
+            leak_ifs!
     else
         f
     end

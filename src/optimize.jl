@@ -149,3 +149,65 @@ function _explore_blocks!(expr, stack)
 
     expr
 end
+
+"""
+    leak_ifs!(func::Func)::Func
+
+Replace to branches of ifs assigning to the same variable to
+a an assignment from the value of the if.
+
+## Example
+
+Tranforms this construct
+
+```wat
+(if (local.get $cond)
+    (then (local.set $x (i32.const 1)))
+    (else (local.set $x (i32.const 2))))
+```
+
+into
+
+```wat
+(local.set $x
+    (if (local.get $cond)
+        (then (i32.const 1))
+        (else (i32.const 2))))
+```
+"""
+function leak_ifs!(func)
+    _leak_ifs!(func.inst, func.locals)
+    func
+end
+
+function _leak_ifs!(expr, locals)
+    i = firstindex(expr)
+    while i <= lastindex(expr)
+        inst = expr[i]
+
+        inst isa If || continue
+        isempty(inst.fntype.results) && continue
+        isempty(inst.trueinst) && continue
+        isempty(inst.falseinst) && continue
+
+        if last(inst.trueinst) isa local_set &&
+            last(inst.falseinst) isa local_set &&
+            last(inst.trueinst).n == last(inst.falseinst).n
+
+            (; n) = pop!(inst.trueinst)
+            pop!(inst.falseinst)
+            push!(inst.fntype.results, locals[n])
+
+            insert!(
+                expr,
+                i,
+                local_set(n),
+            )
+
+            i += 1
+        end
+
+        i += 1
+    end
+    expr
+end
