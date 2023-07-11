@@ -150,6 +150,50 @@ function _explore_blocks!(expr, stack)
     expr
 end
 
+function remove_useless_branches!(func)
+    _remove_useless_branches!(func.inst)
+    func
+end
+
+function _remove_useless_branches!(expr)
+    # TODO: make it generalize to any stack level, not just the first
+    isempty(expr) && return expr
+
+    inst = last(expr)
+    if inst isa If &&
+        !isempty(inst.trueinst) &&
+        !isempty(inst.falseinst) &&
+        last(inst.trueinst) == br(1) &&
+        last(inst.falseinst) == br(1)
+
+        pop!(inst.trueinst)
+        pop!(inst.falseinst)
+    end
+
+    if inst isa Block &&
+        !isempty(inst.inst) &&
+        last(inst.inst) == br(1)
+
+        pop!(inst.inst)
+    end
+
+    for (i, inst) in enumerate(expr)
+        if inst == br(0)
+            deleteat!(expr, i:lastindex(expr))
+            break
+        end
+
+        if inst isa Block
+            _remove_useless_branches!(inst.inst)
+        elseif inst isa If
+            _remove_useless_branches!(inst.trueinst)
+            _remove_useless_branches!(inst.falseinst)
+        end
+    end
+
+    expr
+end
+
 """
     leak_ifs!(func::Func)::Func
 
@@ -181,12 +225,21 @@ function leak_ifs!(func)
 end
 
 function _leak_ifs!(expr, locals)
-    i = firstindex(expr)
-    while i <= lastindex(expr)
+    i = firstindex(expr) - 1
+    while i < lastindex(expr)
+        i += 1
         inst = expr[i]
 
+        if inst isa Union{Loop,Block}
+            _leak_ifs!(inst.inst, locals)
+        elseif inst isa If
+            _leak_ifs!(inst.trueinst, locals)
+            _leak_ifs!(inst.falseinst, locals)
+        end
+
         inst isa If || continue
-        isempty(inst.fntype.results) && continue
+
+        isempty(inst.fntype.results) || continue
         isempty(inst.trueinst) && continue
         isempty(inst.falseinst) && continue
 
@@ -198,16 +251,14 @@ function _leak_ifs!(expr, locals)
             pop!(inst.falseinst)
             push!(inst.fntype.results, locals[n])
 
+            i += 1
+
             insert!(
                 expr,
                 i,
                 local_set(n),
             )
-
-            i += 1
         end
-
-        i += 1
     end
     expr
 end

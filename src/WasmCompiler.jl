@@ -43,6 +43,9 @@ macro code_wasm(exprs...)
                 WasmCompiler.WModule() :
                 WasmCompiler.RuntimeModule()
             WasmCompiler.emit_func!(module_, $f, types; optimize=$optimize)
+            if applicable(nameof, $f)
+                WasmCompiler.export!(module_, string(nameof($f)), 1)
+            end
             Wat(module_, $(print_sexpr))
         end
     else

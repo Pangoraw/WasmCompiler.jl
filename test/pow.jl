@@ -9,14 +9,13 @@ end
 @testset "Export pow" begin
     wat = @code_wasm mod=true pow(Int32(2), Int32(3))
     wmod = wat.obj
-    WC.export!(wmod, "pow", 1)
 
     wasm = WC.wasm(wmod) |> Wasmtime.WasmByteVec
 
     engine = WasmEngine()
-    store = WasmStore(engine)
-    wmodule = WasmModule(store, wasm)
-    instance = WasmInstance(store, wmodule)
+    store = WasmtimeStore(engine)
+    wmodule = WasmtimeModule(engine, wasm)
+    instance = WasmtimeInstance(store, wmodule)
 
     wpow = Wasmtime.exports(instance).pow
 

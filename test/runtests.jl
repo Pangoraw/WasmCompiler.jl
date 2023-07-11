@@ -170,4 +170,36 @@ end
     @test last(first(code).inst) == br(0)
 end
 
+@testset "Remove useless branches" begin
+    code = Inst[
+        Block(FuncType([], []), Inst[
+            Block(FuncType([], []), Inst[
+                i32_const(1),
+                drop(),
+                br(1),
+            ])
+        ]),
+    ]
+
+    f = Func("f", FuncType([], []), [], code)
+    WC.remove_useless_branches!(f)
+    WC.merge_blocks!(f)
+
+    @test length(code) == 2
+    @test first(code) == i32_const(1)
+    @test last(code) == drop()
+
+    code = Inst[
+        i32_const(1),
+        drop(),
+        br(0),
+        i32_const(2),
+        drop(),
+    ]
+    WC._remove_useless_branches!(code)
+    @test length(code) == 2
+    @test first(code) == i32_const(1)
+    @test last(code) == drop() 
+end
+
 include("./pow.jl")

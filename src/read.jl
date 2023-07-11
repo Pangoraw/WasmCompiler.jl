@@ -134,7 +134,7 @@ function wread(io::IO)
     @assert magic  == MAGIC "got wrong MAGIC -> $magic"
     @assert read(io, length(WASM_VERSION)) == WASM_VERSION
 
-    local fntypes
+    local fntypes = WasmType[]
 
     while !eof(io)
         sid = read(io, UInt8)

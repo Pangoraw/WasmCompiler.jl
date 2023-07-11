@@ -74,7 +74,7 @@ end
 const MAGIC = UInt8[0x00, 0x61, 0x73, 0x6D]
 const WASM_VERSION = UInt8[0x01, 0x00, 0x00, 0x00]
 
-wwrite(io::IO, args...) = sum(arg -> wwrite(io, arg), args)
+wwrite(io::IO, a, b, args...) = wwrite(io, a) + wwrite(io, b) + sum(arg -> wwrite(io, arg), args; init=0)
 wwrite(io::IO, x::UInt8) = write(io, x)
 wwrite(io::IO, x::Integer) = LEB128.encode(io, x)
 wwrite(io::IO, ::WasmInt32) = write(io, 0x7F)
@@ -226,17 +226,23 @@ wwrite(io::IO, c::f32_const) = write(io, 0x43, c.val)
 wwrite(io::IO, c::f64_const) = write(io, 0x44, c.val)
 
 wwrite(io::IO, c::call) = wwrite(io, 0x10, c.func - one(c.func))
+
+function write_block_type(io::IO, fntype::FuncType)
+    fntype == voidtype && return write(io, 0x40)
+    @assert isempty(fntype.params) "not supported"
+    @assert length(fntype.results) == 1 "> 1 results not supported"
+    wwrite(io, only(fntype.results))
+end
+
 function wwrite(io::IO, block::Union{Loop,Block})
     n = write(io, block isa Loop ? 0x03 : 0x02)
-    @assert block.fntype == voidtype
-    n += write(io, 0x40) # voidtype
+    n += write_block_type(io, block.fntype)
     n += wwrite(io, block.inst)
     n += write(io, 0x0B)
 end
 function wwrite(io::IO, if_::If)
     n = write(io, 0x04)
-    @assert if_.fntype == voidtype
-    n += write(io, 0x40) # voidtype
+    n += write_block_type(io, if_.fntype)
     n += wwrite(io, if_.trueinst)
     if !isempty(if_.falseinst)
         n += write(io, 0x05)
