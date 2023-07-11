@@ -87,14 +87,21 @@ function remove_nops!(func)
     filter!(inst -> !(inst isa nop), func)
 end
 
+"""
+    merge_blocks!(func::Func)::Func
+
+Remove blocks wich are not targeted by any branch instructions.
+"""
 function merge_blocks!(func)
-    _explore_blocks!(func.inst, [])
+    _explore_blocks!(func.inst, Int[])
     func
 end
 
+const Branch = Union{br,br_if}
+
 function _renumber_brs!(inst, deleted)
-    if inst isa br
-        inst.label > deleted && return br(inst.label - 1)
+    if inst isa Branch
+        inst.label > deleted && return typeof(inst)(inst.label - 1)
         inst.label == deleted && error("invalid branch")
         return inst
     elseif inst isa Union{Block,Loop}
@@ -112,7 +119,7 @@ function _explore_blocks!(expr, stack)
     while i <= length(expr)
         inst = expr[i]
 
-        if inst isa br
+        if inst isa Branch
             stack[end-inst.label] += 1
         elseif inst isa Loop 
             push!(stack, 0)
