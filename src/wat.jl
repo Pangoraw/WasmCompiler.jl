@@ -95,7 +95,7 @@ function _printwasm(io::IO, mod::WModule)
             _printkw(io, "tag")
             print(io, ' ')
             !isnothing(imp.id) && (print_sigil(io, imp.id); print(io, ' '))
-            _printwasm(io, imp.type)
+            _printwasm(io, imp.fntype)
             print(io, ')')
         else
             error("cannot handle import $imp")
@@ -305,13 +305,56 @@ function _printinst(io::IO, s)
         printstyled(io, s; color=:magenta) : print(io, s)
 end
 
+function print_tagidx(io::IO, idx)
+    wmod = get(io, :mod, nothing)
+    if isnothing(wmod)
+        print(io, idx)
+        return
+    end
+
+    name = nothing
+    for imp in wmod.imports
+        imp isa TagImport || continue
+        idx -= 1
+        if iszero(idx)
+            name = imp.name
+            break
+        end
+    end
+
+    if isnothing(name)
+        name = wmod.tags[idx].name
+    end
+
+    if isnothing(name)
+        print(io, idx)
+        return
+    end
+
+    print_sigil(io, name)
+end
+
 function print_globalidx(io::IO, idx)
     wmod = get(io, :mod, nothing)
     if isnothing(wmod)
         print(io, idx)
         return
     end
-    name = wmod.globals[idx].name
+
+    name = nothing
+    for imp in wmod.imports
+        imp isa GlobalImport || continue
+        idx -= 1
+        if iszero(idx)
+            name = imp.name
+            break
+        end
+    end
+
+    if isnothing(name)
+        name = wmod.globals[idx].name
+    end
+
     if isnothing(name)
         print(io, idx)
         return
@@ -322,7 +365,7 @@ end
 _printwasm(io::IO, g::global_get) = (_printinst(io, "global.get"); print(io, ' '); print_globalidx(io, g.n))
 _printwasm(io::IO, g::global_set) = (_printinst(io, "global.set"); print(io, ' '); print_globalidx(io, g.n))
 _printwasm(io::IO, ::return_) = _printinst(io, "return")
-_printwasm(io::IO, t::throw_) = (_printinst(io, "throw"); print(io, " ", t.tag))
+_printwasm(io::IO, t::throw_) = (_printinst(io, "throw"); print(io, ' '); print_tagidx(io, t.tag))
 _printwasm(io::IO, rt::rethrow_) = (_printinst(io, "rethrow"); print(io, " ", rt.label))
 _printwasm(io::IO, s::string_const) = (_printinst(io, "string.const"); print(io, " \"", s.contents, "\""))
 _printwasm(io::IO, c::call) = (_printinst(io, "call"); print(io, ' '); print_funcidx(io, c.func))

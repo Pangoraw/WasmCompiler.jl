@@ -67,7 +67,7 @@ struct TagImport <: Import
     module_name::String
     name::String
     id::Union{Nothing,String}
-    type::FuncType
+    fntype::FuncType
 end
 
 abstract type Export end

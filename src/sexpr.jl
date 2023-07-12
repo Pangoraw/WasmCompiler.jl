@@ -2,6 +2,15 @@ takes(_, _, ::Union{i32_const,i64_const,f32_const,f64_const,local_get,global_get
 takes(_, _, ::UnaryInst) = 1
 takes(_, _, ::Union{local_set,local_tee,global_set,drop,ref_cast,struct_get}) = 1
 takes(_, _, ::BinaryInst) = 2
+function takes(wmod, _, (; tag)::throw_)
+    for imp in wmod.imports
+        imp isa TagImport || continue
+        tag -= 1
+        iszero(tag) && return length(imp.fntype.params)
+    end
+
+    length(wmod.tags[tag].fntype.params)
+end
 takes(wmod, _, c::call) = length(get_function_type(wmod, c.func).params)
 takes(_, _, block::Union{Block,Loop}) = length(block.fntype.params)
 takes(_, _, if_::If) = length(if_.fntype.params) + 1

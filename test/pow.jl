@@ -30,20 +30,27 @@ end
 
     size_opt = length(WC.wasm(mod_opt))
     size_unopt = length(WC.wasm(mod_unopt))
+    size_opt2 = length(WC.wasm(WC.optimize(mod_unopt)))
 
     ratio = (size_unopt - size_opt) / size_opt
+    ratio2 = (size_unopt - size_opt2) / size_opt2
     @test ratio >= 0.
 
-    print("Opt(pow)    ")
-    printstyled(size_opt, "B", color=:cyan)
-    println()
     print("Unopt(pow)  ")
     printstyled(size_unopt, "B", color=:cyan)
     println()
-    print("           ")
+    print("Opt(pow)    ")
+    printstyled(size_opt, "B ", color=:cyan)
     printstyled(ratio > 0 ? "+" : "",
                 round(100ratio; digits=0),
                 "%";
                 color=ratio > 0 ? :green : :red)
+    println()
+    print("Byen(pow)   ")
+    printstyled(size_opt2, "B ", color=:cyan)
+    printstyled(ratio2 > 0 ? "+" : "",
+                round(100ratio2; digits=0),
+                "%";
+                color=ratio2 > 0 ? :green : :red)
     println()
 end

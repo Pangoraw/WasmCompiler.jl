@@ -150,6 +150,26 @@ function _explore_blocks!(expr, stack)
     expr
 end
 
+"""
+    remove_useless_branches!(func::Func)::Func
+
+Remove useless `br` instructions at the end of a block.
+
+Example:
+
+```wat
+(block
+  (block
+    (br 1)))
+```
+
+to:
+
+```wat
+(block
+  (block))
+```
+"""
 function remove_useless_branches!(func)
     _remove_useless_branches!(func.inst)
     func
@@ -170,11 +190,16 @@ function _remove_useless_branches!(expr)
         pop!(inst.falseinst)
     end
 
-    if inst isa Block &&
-        !isempty(inst.inst) &&
-        last(inst.inst) == br(1)
-
-        pop!(inst.inst)
+    level = 1
+    while inst isa Block && !isempty(inst.inst)
+        if last(inst.inst) == br(level)
+            pop!(inst.inst)
+        elseif last(inst.inst) isa Block
+            level += 1
+            inst = last(inst.inst)
+        else
+            break
+        end
     end
 
     for (i, inst) in enumerate(expr)
@@ -183,8 +208,22 @@ function _remove_useless_branches!(expr)
             break
         end
 
+        if inst == unreachable()
+            deleteat!(expr, i+1:lastindex(expr))
+            break
+        end
+
         if inst isa Block
             _remove_useless_branches!(inst.inst)
+        elseif inst isa Loop
+            for newinst in inst.inst
+                if newinst isa If
+                    _remove_useless_branches!(newinst.trueinst)
+                    _remove_useless_branches!(newinst.falseinst)
+                elseif newinst isa Block
+                    _remove_useless_branches!(newinst.inst)
+                end
+            end
         elseif inst isa If
             _remove_useless_branches!(inst.trueinst)
             _remove_useless_branches!(inst.falseinst)
@@ -261,4 +300,26 @@ function _leak_ifs!(expr, locals)
         end
     end
     expr
+end
+
+_type_score(::WasmInt32) = 1
+_type_score(::WasmInt64) = 2
+_type_score(::WasmFloat32) = 3
+_type_score(::WasmFloat64) = 4
+_type_score(::WasmVector128) = 5
+_type_score(r::StructRef) = 100 + 10r.typeidx + r.null
+_type_score(r::ArrayRef) = 200 + 10r.typeidx + r.null
+_type_score(::StringRef) = 300
+
+function sort_locals!(func)
+    (; locals) = func
+    nparams = length(func.fntype.params)
+    perm = nparams .+ sortperm(@view locals[begin+nparams:end]; by=_type_score)
+    prepend!(perm, 1:nparams)
+    permute!(locals, perm)
+    map!(func) do inst
+        inst isa Union{local_set,local_get,local_tee} || return inst
+        return typeof(inst)(perm[inst.n])
+    end
+    func
 end

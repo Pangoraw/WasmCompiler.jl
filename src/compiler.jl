@@ -41,7 +41,8 @@ RuntimeModule() =
       [Func("jl_init", FuncType([], []), [], [])],
       [], [], [], [], [], jl_init,
       [
-          FuncImport("bootstrap", "jl_symbol", "jl-symbol", FuncType([StringRef()], [jl_symbol_t])),
+          FuncImport("bootstrap", "jl_symbol", "jl-symbol", FuncType([StringRef()], [jl_value_t])),
+          FuncImport("bootstrap", "jl_string", "jl-string", FuncType([StringRef()], [jl_value_t])),
           FuncImport("bootstrap", "jl_new_datatype", "jl-new-datatype", FuncType([jl_symbol_t, i32, i32], [jl_datatype_t])),
           FuncImport("bootstrap", "jl_isa", "jl-isa", FuncType([jl_value_t, jl_datatype_t], [i32])),
           FuncImport("bootstrap", "jl_box_int32", "jl-box-int32", FuncType([i32], [jl_value_t])),
@@ -60,18 +61,19 @@ RuntimeModule() =
 # Useful indices in RuntimeModule
 
 const jl_symbol = 1
-const jl_new_datatype = 2
-const jl_isa = 3
-const jl_box_int32 = 4
-const jl_box_int64 = 5
-const jl_box_float32 = 6
-const jl_box_float64 = 7
-const jl_unbox_int32 = 8
-const jl_unbox_int64 = 9
-const jl_unbox_float32 = 10
-const jl_unbox_float64 = 11
+const jl_string = 2
+const jl_new_datatype = 3
+const jl_isa = 4
+const jl_box_int32 = 5
+const jl_box_int64 = 6
+const jl_box_float32 = 7
+const jl_box_float64 = 8
+const jl_unbox_int32 = 9
+const jl_unbox_int64 = 10
+const jl_unbox_float32 = 11
+const jl_unbox_float64 = 12
 
-const jl_init = 12
+const jl_init = 13
 
 const jl_value_t = StructRef(false, 1)
 const jl_datatype_t = StructRef(false, 2)
@@ -79,6 +81,9 @@ const jl_typename_t = StructRef(false, 3)
 const jl_string_t = StructRef(false, 4)
 const jl_simplevector_t = StructRef(false, 6)
 const jl_symbol_t = StructRef(false, 7)
+
+const jl_exception = 1
+const jl_exception_tag = 1
 
 struct CodegenContext
     mod::WModule
@@ -245,27 +250,27 @@ function emit_codes(ctx, ir, rt, nargs)
         isnumeric(typ) ? valtype(typ) : jl_value_t
     end
 
-    function emit_val(val)
+    function emit_val!(expr, val)
         if val isa Core.SSAValue || val isa Core.Argument
-            local_get(getlocal!(val))
+            push!(expr, local_get(getlocal!(val)))
         elseif val isa Int32 || val isa Bool
-            i32_const(val)
+            push!(expr, i32_const(val))
         elseif val isa UInt32
-            i32_const(reinterpret(Int32, val))
+            push!(expr, i32_const(reinterpret(Int32, val)))
         elseif val isa Int64
-            i64_const(val)
+            push!(expr, i64_const(val))
         elseif val isa UInt64
-            i64_const(reinterpret(Int64, val))
+            push!(expr, i64_const(reinterpret(Int64, val)))
         elseif val isa Float32
-            f32_const(val)
+            push!(expr, f32_const(val))
         elseif val isa Float64
-            f64_const(val)
+            push!(expr, f64_const(val))
         elseif val isa String
-            string_const(val)
+            push!(expr, string_const(val), call(jl_string))
         elseif isnothing(val)
             nop()
         elseif val isa GlobalRef && isconst(val)
-            emit_val(getproperty(val.mod, val.name))
+            emit_val!(expr, getproperty(val.mod, val.name))
         else
             throw(CompilationError(types, "invalid value $val @ $(typeof(val))"))
         end
@@ -306,7 +311,7 @@ function emit_codes(ctx, ir, rt, nargs)
                 if f === Base.sext_int
                     typ = resolve_arg(inst, 2)
                     arg = inst.args[3]
-                    push!(exprs[bidx], emit_val(arg))
+                    emit_val!(exprs[bidx], arg)
                     if typ == Int64 && irtype(arg) == i32
                         push!(exprs[bidx], i64_extend_i32_s())
                         push!(exprs[bidx], local_set(getlocal!(ssa)))
@@ -317,7 +322,7 @@ function emit_codes(ctx, ir, rt, nargs)
                 elseif f === Base.fpext
                     typ = resolve_arg(inst, 2)
                     arg = inst.args[3]
-                    push!(exprs[bidx], emit_val(arg))
+                    emit_val!(exprs[bidx], arg)
                     argtype = irtype(arg)
                     if typ == Float64 && argtype == f32
                         push!(exprs[bidx], f64_promote_f32())
@@ -332,7 +337,7 @@ function emit_codes(ctx, ir, rt, nargs)
                     typ = resolve_arg(inst, 2)
                     arg = inst.args[3]
                     argtype = irtype(arg)
-                    push!(exprs[bidx], emit_val(arg))
+                    emit_val!(exprs[bidx], arg)
                     if valtype(typ) == argtype
                         # pass
                     elseif typ in (Int32, UInt32) && argtype == f32
@@ -351,7 +356,7 @@ function emit_codes(ctx, ir, rt, nargs)
                 elseif f === Base.fptrunc
                     typ = resolve_arg(inst, 2)
                     arg = inst.args[3]
-                    push!(exprs[bidx], emit_val(arg))
+                    emit_val!(exprs[bidx], arg)
                     argtype = irtype(arg)
                     if typ == Float32 && argtype == f64
                         push!(exprs[bidx], f32_demote_f64())
@@ -363,7 +368,7 @@ function emit_codes(ctx, ir, rt, nargs)
                 elseif f === Base.trunc_int
                     typ = resolve_arg(inst, 2)
                     arg = inst.args[3]
-                    push!(exprs[bidx], emit_val(arg))
+                    emit_val!(exprs[bidx], arg)
                     argtype = irtype(arg)
                     if typ in (Int32, UInt32) && argtype == i64
                         push!(exprs[bidx], i32_wrap_i64())
@@ -377,7 +382,7 @@ function emit_codes(ctx, ir, rt, nargs)
                 elseif f === Base.zext_int
                     typ = resolve_arg(inst, 2)
                     arg = inst.args[3]
-                    push!(exprs[bidx], emit_val(arg))
+                    emit_val!(exprs[bidx], arg)
                     argtype = jltype(arg)
                     if typ in (Int64, UInt64)
                         if argtype == Int32 || argtype == Bool
@@ -397,7 +402,7 @@ function emit_codes(ctx, ir, rt, nargs)
                 elseif f === Base.fptosi
                     typ = resolve_arg(inst, 2)
                     arg = inst.args[3]
-                    push!(exprs[bidx], emit_val(arg))
+                    emit_val!(exprs[bidx], arg)
                     argtype = jltype(arg)
                     if typ == Int32
                         if argtype == Float32
@@ -423,7 +428,7 @@ function emit_codes(ctx, ir, rt, nargs)
                 elseif f === Base.sitofp
                     typ = resolve_arg(inst, 2)
                     arg = inst.args[3]
-                    push!(exprs[bidx], emit_val(arg))
+                    emit_val!(exprs[bidx], arg)
                     argtype = jltype(arg)
                     if typ == Float32
                         if argtype == Int32
@@ -453,9 +458,9 @@ function emit_codes(ctx, ir, rt, nargs)
                     push!(exprs[bidx], local_set(getlocal!(ssa)))
                     continue
                 elseif f === Core.ifelse
-                    push!(exprs[bidx], emit_val(inst.args[3]))
-                    push!(exprs[bidx], emit_val(inst.args[4]))
-                    push!(exprs[bidx], emit_val(inst.args[2]))
+                    emit_val!(exprs[bidx], inst.args[3])
+                    emit_val!(exprs[bidx], inst.args[4])
+                    emit_val!(exprs[bidx], inst.args[2])
                     push!(exprs[bidx], select())
                     push!(exprs[bidx], local_set(getlocal!(ssa)))
                     continue
@@ -463,11 +468,15 @@ function emit_codes(ctx, ir, rt, nargs)
                     arg = inst.args[2]
                     typ = jltype(arg)
                     if typ == Bool
-                        push!(exprs[bidx], emit_val(arg))
+                        emit_val!(exprs[bidx], arg)
                     elseif typ == Int32 || typ == UInt32
-                        push!(exprs[bidx], i32_const(0), emit_val(arg), i32_sub())
+                        push!(exprs[bidx], i32_const(0))
+                        emit_val!(exprs[bidx], arg)
+                        push!(exprs[bidx], i32_sub())
                     elseif typ == Int64 || typ == UInt64
-                        push!(exprs[bidx], i64_const(0), emit_val(arg), i64_sub())
+                        push!(exprs[bidx], i64_const(0))
+                        emit_val!(exprs[bidx], arg)
+                        push!(exprs[bidx], i64_sub())
                     else
                         throw(CompilationError(types, "invalid neg_int $inst"))
                     end
@@ -478,26 +487,26 @@ function emit_codes(ctx, ir, rt, nargs)
                     continue
                 elseif f === Base.flipsign_int
                     argtype = irtype(inst.args[2])
-                    push!(exprs[bidx], emit_val(inst.args[3]))
+                    emit_val!(exprs[bidx], inst.args[3])
                     if argtype == i32
+                        push!(exprs[bidx], i32_const(0))
+                        emit_val!(exprs[bidx], inst.args[2]),
+                        push!(exprs[bidx], i32_sub())
+                        emit_val!(exprs[bidx], inst.args[2])
                         push!(
                             exprs[bidx],
-                            i32_const(0),
-                            emit_val(inst.args[2]),
-                            i32_sub(),
-                            emit_val(inst.args[2]),
                             i32_const(0),
                             i32_ge_u(),
                             select(),
                             local_set(getlocal!(ssa)),
                         )
                     elseif argtype == i64
+                        push!(exprs[bidx], i64_const(0))
+                        emit_val!(exprs[bidx], inst.args[2])
+                        push!(exprs[bidx], i64_sub())
+                        emit_val!(exprs[bidx], inst.args[2]),
                         push!(
                             exprs[bidx],
-                            i64_const(0),
-                            emit_val(inst.args[2]),
-                            i64_sub(),
-                            emit_val(inst.args[2]),
                             i64_const(0),
                             i64_ge_u(),
                             select(),
@@ -510,10 +519,10 @@ function emit_codes(ctx, ir, rt, nargs)
                 elseif f === Base.arrayref
                     idxtype = irtype(inst.args[4])
                     idxtype in (i32, i64) || throw(CompilationError(types, "invalid index type $idxtype in $inst"))
+                    emit_val!(exprs[bidx], inst.args[3]),
+                    emit_val!(exprs[bidx], inst.args[4]),
                     push!(
                         exprs[bidx],
-                        emit_val(inst.args[3]),
-                        emit_val(inst.args[4]),
                         idxtype == i32 ? nop() : i32_wrap_i64(),
                         array_get(5 - 1),
                         local_set(getlocal!(ssa)),
@@ -532,9 +541,9 @@ function emit_codes(ctx, ir, rt, nargs)
                         throw(CompilationError(types, "invalid getfield $inst"))
                     end
                     structidx = struct_idx!(ctx, typ)
+                    emit_val!(exprs[bidx], inst.args[2]),
                     push!(
                         exprs[bidx],
-                        emit_val(inst.args[2]),
                         ref_cast(structidx),
                         struct_get(structidx, fieldidx),
                         local_set(getlocal!(ssa)),
@@ -549,7 +558,7 @@ function emit_codes(ctx, ir, rt, nargs)
                         push!(exprs[bidx], global_get(emit_datatype!(ctx, arg)))
                         continue
                     end
-                    push!(exprs[bidx], emit_val(arg))
+                    emit_val!(exprs[bidx], arg)
                 end
                 if haskey(INTRINSICS, f)
                     intr = INTRINSICS[f]
@@ -633,14 +642,14 @@ function emit_codes(ctx, ir, rt, nargs)
                     end
                 elseif f === Core.convert
                     push!(exprs[bidx], drop(), drop())
-                    push!(exprs[bidx], emit_val(inst.args[3]))
+                    emit_val!(exprs[bidx], inst.args[3])
                 elseif f === Base.isa
                     typ = resolve_arg(inst, 3)
                     push!(exprs[bidx], global_get(emit_datatype!(ctx, typ)))
                     push!(exprs[bidx], call(jl_isa))
                 elseif f === Core.throw
-                    push!(exprs[bidx], emit_val(inst.args[2]))
-                    push!(exprs[bidx], drop(), throw_(0))
+                    convert_val!(exprs[bidx], irtype(inst.args[2]), jl_value_t)
+                    push!(exprs[bidx], global_set(jl_exception), throw_(jl_exception_tag))
                     continue
                 else
                     throw(CompilationError(types, "Cannot handle call to $f @ $inst"))
@@ -650,18 +659,18 @@ function emit_codes(ctx, ir, rt, nargs)
                 push!(exprs[bidx], local_set(loc))
             elseif inst isa PiNode
                 loc = getlocal!(ssa)
-                push!(exprs[bidx], emit_val(inst.val))
+                emit_val!(exprs[bidx], inst.val)
                 push!(exprs[bidx], local_set(loc))
             elseif inst isa GotoIfNot 
-                block_terminator = emit_val(inst.cond)
+                block_terminator = inst.cond
             elseif inst isa ReturnNode
                 if !isdefined(inst, :val)
                     continue
                 end
                 rt_type = isnumeric(rt) ? valtype(rt) : jl_value_t
-                push!(
+                emit_val!(
                     exprs[bidx],
-                    emit_val(inst.val),
+                    inst.val,
                 )
                 convert_val!(exprs[bidx], irtype(inst.val), rt_type)
                 # push!(exprs[bidx], return_())
@@ -674,7 +683,7 @@ function emit_codes(ctx, ir, rt, nargs)
                     continue # skip upsnode
                 end
                 loc = getlocal!(ssa)
-                push!(exprs[bidx], emit_val(inst.val))
+                emit_val!(exprs[bidx], inst.val)
                 push!(exprs[bidx], local_set(loc))
             elseif inst isa PhiNode
                 # handled on incoming blocks
@@ -690,7 +699,7 @@ function emit_codes(ctx, ir, rt, nargs)
                     continue
                 end
                 for arg in inst.args[begin+2:end]
-                    push!(exprs[bidx], emit_val(arg))
+                    emit_val!(exprs[bidx], arg)
                 end
                 mi = inst.args[1]
                 haskey(ctx.func_dict, mi.specTypes) || emit_func!(ctx, mi.specTypes)
@@ -703,12 +712,13 @@ function emit_codes(ctx, ir, rt, nargs)
             elseif isnothing(inst)
                 push!(exprs[bidx], nop())
             elseif inst isa GlobalRef
-                push!(emit_val(inst), local_set(getlocal!(ssa)))
+                emit_val!(exprs[bidx], inst)
+                push!(exprs[bidx], local_set(getlocal!(ssa)))
             elseif Meta.isexpr(inst, :new)
                 typ = resolve_arg(inst, 1)
                 push!(exprs[bidx], global_get(emit_datatype!(ctx, typ)))
                 for arg in inst.args[begin+1:end]
-                    push!(exprs[bidx], emit_val(arg))
+                    emit_val!(exprs[bidx], arg)
                 end
                 structidx = struct_idx!(ctx, typ)
                 push!(
@@ -730,13 +740,13 @@ function emit_codes(ctx, ir, rt, nargs)
 
                 validx = findfirst(==(bidx), tgt_inst.edges)
                 isnothing(validx) && continue
-                push!(exprs[bidx], emit_val(tgt_inst.values[validx]))
+                emit_val!(exprs[bidx], tgt_inst.values[validx])
                 philoc = getlocal!(SSAValue(tgt_sidx))
                 push!(exprs[bidx], local_set(philoc))
             end
         end
 
-        !isnothing(block_terminator) && push!(exprs[bidx], block_terminator)
+        !isnothing(block_terminator) && emit_val!(exprs[bidx], block_terminator)
     end
 
     exprs, locals
@@ -813,6 +823,7 @@ function emit_func!(ctx, types)
         f |>
             make_tees! |>
             remove_unused! |>
+            sort_locals! |>
             remove_nops! |>
             merge_blocks! |>
             remove_useless_branches! |>
