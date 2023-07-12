@@ -1,6 +1,6 @@
 (module
 
-    ;; ==== bootstrap.wat ====
+    ;; ==== bootstrap.wast ====
     ;;
     ;; This file contains an attempt to implement enough of the julia runtime using the 
     ;; wasm GC proposal. This maybe too much work but the goal is to evaluate the difficulty along the

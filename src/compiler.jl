@@ -4,7 +4,7 @@ import Core.Compiler: widenconst, PiNode, PhiNode, ReturnNode,
 """
     RuntimeModule()::WModule
 
-Returns a `WModule` which can be merged with `bootstrap.wat` using `wasm-merge`.
+Returns a `WModule` which can be merged with `bootstrap.wast` using `wasm-merge`.
 """
 RuntimeModule() =
     WModule(

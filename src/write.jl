@@ -271,9 +271,16 @@ function wwrite(io::IO, a::Vector)
 end
 
 function wwrite(io::IO, fntype::FuncType)
-    write(io, 0x60)
-    wwrite(io, fntype.params)
-    wwrite(io, fntype.results)
+    n = write(io, 0x60)
+    n += wwrite(io, fntype.params)
+    n += wwrite(io, fntype.results)
+    n
+end
+
+function wwrite(io::IO, glob::Global)
+    n = wwrite(io, glob.type.type, glob.type.mut ? 0x01 : 0x00)
+    n += wwrite(io, glob.init)
+    n
 end
 
 function wwrite(io::IO, wmod::WModule)
@@ -282,10 +289,33 @@ function wwrite(io::IO, wmod::WModule)
  
     # 1. Type Section
     fntypes::Vector{FuncType} = unique(map(f -> f.fntype, wmod.funcs))
+    for imp in wmod.imports
+        imp isa FuncImport || continue
+        if isnothing(findfirst(==(imp.fntype), fntypes))
+            push!(fntypes, imp.fntype)
+        end
+    end
     sio = IOBuffer()
     wwrite(sio, fntypes)
     buf = take!(sio)
     n += wwrite(io, 0x01, buf)
+
+    # 2. Import Section
+    if !isempty(wmod.imports)
+        sio = IOBuffer()
+        wwrite(sio, UInt32(length(wmod.imports)))
+        for imp in wmod.imports 
+            if imp isa FuncImport
+                wwrite(sio, imp.module_name, imp.name)
+                wwrite(sio, 0x00, UInt32(findfirst(==(imp.fntype), fntypes)))
+            elseif imp isa GlobalImport
+                wwrite(sio, imp.module_name, imp.name)
+                wwrite(sio, 0x03, imp.type.type, imp.type.mut ? 0x01 : 0x00)
+            end
+        end
+        buf = take!(sio)
+        n += wwrite(io, 0x02, buf)
+    end
 
     # 3. Func Section
     fntype_indices = map(f -> UInt32(findfirst(==(f.fntype), fntypes)) - one(UInt32), wmod.funcs)
@@ -294,18 +324,28 @@ function wwrite(io::IO, wmod::WModule)
     buf = take!(sio)
     n += wwrite(io, 0x03, buf)
 
-    # 7. Export Section
-    sio = IOBuffer()
-    wwrite(sio, UInt32(length(wmod.exports)))
-    for exp in wmod.exports
-        if exp isa FuncExport
-            wwrite(sio, exp.name, 0x00, exp.func - one(exp.func))
-        else
-            error("unsupported export $exp")
-        end
+    # 6. Global Section
+    if !isempty(wmod.globals)
+        sio = IOBuffer()
+        wwrite(sio, wmod.globals)
+        buf = take!(sio)
+        n += wwrite(io, 0x06, buf)
     end
-    buf = take!(sio)
-    n += wwrite(io, 0x07, buf)
+
+    # 7. Export Section
+    if !isempty(wmod.exports)
+        sio = IOBuffer()
+        wwrite(sio, UInt32(length(wmod.exports)))
+        for exp in wmod.exports
+            if exp isa FuncExport
+                wwrite(sio, exp.name, 0x00, exp.func - one(exp.func))
+            else
+                error("unsupported export $exp")
+            end
+        end
+        buf = take!(sio)
+        n += wwrite(io, 0x07, buf)
+    end
 
     # 8. Start Section
     if !isnothing(wmod.start)

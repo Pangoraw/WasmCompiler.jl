@@ -157,7 +157,7 @@ end
 export!(mod, name, index) = push!(mod.exports, FuncExport(name, count(imp -> imp isa FuncImport, mod.imports) + index))
 
 function make_bootstrap()
-    bootstrap_file = joinpath(@__DIR__, "..", "bootstrap.wat") |> normpath
+    bootstrap_file = joinpath(@__DIR__, "..", "bootstrap.wast") |> normpath
     bootstrap_output = joinpath(@__DIR__, "..", "bootstrap.wasm") |> normpath
     isfile(bootstrap_output) && return bootstrap_output
     run(`$(wasm_as()) --enable-gc --enable-strings --enable-exception-handling --enable-gc-nn-locals --enable-reference-types $bootstrap_file --output="$(bootstrap_output)"`)
