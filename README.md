@@ -43,6 +43,20 @@ julia> @code_wasm optimize=true relu(1f0)
   select
 )
 
+julia> @code_wasm mod=true sexpr=true optimize=true relu(1f0) # Use sexpr=true to display as WAST
+(module
+  (func $relu (param f32) (result f32)
+    (local i32)
+    (local.set 1
+      (f32.lt
+        (local.get 0)
+        (f32.const 0.0)))
+    (select
+      (f32.const 0.0)
+      (local.get 0)
+      (local.get 1))
+  )
+  (export "relu" (func $relu)))
 ```
 
 ## References
