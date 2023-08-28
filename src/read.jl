@@ -112,7 +112,7 @@ function read_inst(io::IO)
     elseif tag == 0x43
         return f32_const(read(io, Float32))
     elseif tag == 0x44
-        return f64_const(read(io, float64))
+        return f64_const(read(io, Float64))
     else
         error("invalid instruction code $tag")
     end

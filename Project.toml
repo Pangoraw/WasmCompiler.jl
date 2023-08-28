@@ -4,7 +4,7 @@ authors = ["Paul <paul@plutojl.org>"]
 version = "0.1.0"
 
 [deps]
-Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
+Binaryen_jll = "a54ac8ab-712d-5a0e-8e11-9296c0d3c20e"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
