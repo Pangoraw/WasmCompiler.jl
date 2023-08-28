@@ -42,9 +42,12 @@ macro code_wasm(exprs...)
             module_ = $(wmod !== :runtime) ?
                 WasmCompiler.WModule() :
                 WasmCompiler.RuntimeModule()
-            WasmCompiler.emit_func!(module_, $f, types; optimize=$optimize)
+            WasmCompiler.emit_func!(module_, $f, types; optimize=$optimize !== false)
             if applicable(nameof, $f)
                 WasmCompiler.export!(module_, string(nameof($f)), 1)
+            end
+            if $optimize === :binaryen
+                module_ = WasmCompiler.optimize(module_)
             end
             Wat(module_, $(print_sexpr))
         end
