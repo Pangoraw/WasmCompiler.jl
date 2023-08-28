@@ -5,7 +5,7 @@
     <script type="module">
         const output = document.getElementById("output")
 
-        const bytecode = fetch("./merge.wasm")
+        const bytecode = fetch("./output.wasm")
         const { module, instance } = await WebAssembly.instantiateStreaming(bytecode, {
             console: {
                 log: (msg) => {

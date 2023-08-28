@@ -19,6 +19,21 @@ Wat(obj) = Wat(obj, false)
 
 Base.show(io::IO, wat::Wat) = WasmCompiler._printwasm(IOContext(io, :print_sexpr => wat.sexpr), wat.obj)
 
+"""
+    @code_wasm f(args...)
+
+Returns the WebAssembly form of the called function.
+
+## Example
+
+```julia
+julia> @code_wasm optimize=true floor(2.)
+(func $floor (param f64) (result f64)
+  local.get 0
+  f64.floor
+)
+```
+"""
 macro code_wasm(exprs...)
     opts..., ex = exprs
     @assert Meta.isexpr(ex, :call)
@@ -36,7 +51,7 @@ macro code_wasm(exprs...)
     print_sexpr = get(dopts, :sexpr, false)
     optimize = get(dopts, :optimize, false)
     wmod = get(dopts, :mod, false)
-    if wmod !== false
+    if wmod !== false || !(optimize isa Bool) || print_sexpr
         quote
             types = Tuple{map(Core.Typeof, $(args))...}
             module_ = $(wmod !== :runtime) ?
@@ -54,7 +69,7 @@ macro code_wasm(exprs...)
     else
         quote
             types = Tuple{map(Core.Typeof, $(args))...}
-            func = WasmCompiler.emit_func($f, types; optimize=$optimize)
+            func = WasmCompiler.emit_func($f, types; optimize=$optimize !== false)
             Wat(func, $(print_sexpr))
         end
     end

@@ -317,9 +317,10 @@ function sort_locals!(func)
     perm = nparams .+ sortperm(@view locals[begin+nparams:end]; by=_type_score)
     prepend!(perm, 1:nparams)
     permute!(locals, perm)
+    rev = invperm(perm)
     map!(func) do inst
         inst isa Union{local_set,local_get,local_tee} || return inst
-        return typeof(inst)(perm[inst.n])
+        return typeof(inst)(rev[inst.n])
     end
     func
 end
