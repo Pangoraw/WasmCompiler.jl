@@ -383,13 +383,13 @@ function _printwasm(io::IO, sg::struct_get)
     print(io, ' ')
     mod = get(io, :mod, nothing)
     if isnothing(mod)
-        print(io, sg.fieldidx)
+        print(io, sg.fieldidx-1)
         return
     end
     typ = _find_type(mod, sg.typeidx)
     field = typ.fields[sg.fieldidx]
     if isnothing(field.name)
-        print(io, sg.fieldidx)
+        print(io, sg.fieldidx-1)
     else
         print_sigil(io, field.name)
     end

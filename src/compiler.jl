@@ -545,7 +545,7 @@ function emit_codes(ctx, ir, rt, nargs)
                     push!(
                         exprs[bidx],
                         ref_cast(structidx),
-                        struct_get(structidx, fieldidx),
+                        struct_get(structidx, fieldidx + 1 #= skip jl-value-type =#),
                         local_set(getlocal!(ssa)),
                     )
                     continue
