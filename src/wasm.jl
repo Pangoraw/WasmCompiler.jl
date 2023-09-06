@@ -29,6 +29,10 @@ struct MemoryType <: WasmType
     max::UInt32
 end
 
+struct Mem
+    type::MemoryType
+end
+
 struct TableType <: WasmType
     min::UInt32
     max::UInt32
@@ -49,17 +53,24 @@ end
 
 abstract type Import end
 
+struct MemImport <: Import
+    module_name::String
+    name::String
+    id::Union{Nothing,String}
+    mem::Mem
+end
+
 struct FuncImport <: Import
     module_name::String
     name::String
-    id::String
+    id::Union{Nothing,String}
     fntype::FuncType
 end
 
 struct GlobalImport <: Import
     module_name::String
     name::String
-    id::String
+    id::Union{Nothing,String}
     type::GlobalType
 end
 
@@ -72,6 +83,11 @@ end
 
 abstract type Export end
 
+struct MemExport <: Export
+    name::String
+    mem::Index
+end
+
 struct FuncExport <: Export
     name::String
     func::Index
@@ -79,9 +95,6 @@ end
 
 struct Table
     type::TableType
-end
-struct Mem
-    type::MemoryType
 end
 struct Global
     name::Union{Nothing,String}

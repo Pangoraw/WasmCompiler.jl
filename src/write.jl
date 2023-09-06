@@ -225,7 +225,19 @@ wwrite(io::IO, c::i64_const) = wwrite(io, 0x42, c.val)
 wwrite(io::IO, c::f32_const) = write(io, 0x43, c.val)
 wwrite(io::IO, c::f64_const) = write(io, 0x44, c.val)
 
+wwrite(io::IO, s::i32_load) = wwrite(io, 0x28, s.memarg)
+wwrite(io::IO, s::i64_load) = wwrite(io, 0x29, s.memarg)
+wwrite(io::IO, s::f32_load) = wwrite(io, 0x2a, s.memarg)
+wwrite(io::IO, s::f64_load) = wwrite(io, 0x2b, s.memarg)
+
+wwrite(io::IO, s::i32_store) = wwrite(io, 0x36, s.memarg)
+wwrite(io::IO, s::i64_store) = wwrite(io, 0x37, s.memarg)
+wwrite(io::IO, s::f32_store) = wwrite(io, 0x38, s.memarg)
+wwrite(io::IO, s::f64_store) = wwrite(io, 0x39, s.memarg)
+
 wwrite(io::IO, c::call) = wwrite(io, 0x10, c.func - one(c.func))
+
+wwrite(io::IO, memarg::MemArg) = wwrite(io, memarg.align, memarg.offset)
 
 function write_block_type(io::IO, fntype::FuncType)
     fntype == voidtype && return write(io, 0x40)
@@ -324,6 +336,17 @@ function wwrite(io::IO, wmod::WModule)
     buf = take!(sio)
     n += wwrite(io, 0x03, buf)
 
+    # 5. Memory Section
+    if !isempty(wmod.mems)
+        sio = IOBuffer()
+        wwrite(sio, UInt32(length(wmod.mems)))
+        for mem in wmod.mems
+            wwrite(sio, mem.type.min, mem.type.max)
+        end
+        buf = take!(sio)
+        n += wwrite(io, 0x05, buf)
+    end
+
     # 6. Global Section
     if !isempty(wmod.globals)
         sio = IOBuffer()
@@ -339,6 +362,8 @@ function wwrite(io::IO, wmod::WModule)
         for exp in wmod.exports
             if exp isa FuncExport
                 wwrite(sio, exp.name, 0x00, exp.func - one(exp.func))
+            elseif exp isa MemExport
+                wwrite(sio, exp.name, 0x02, exp.mem - one(exp.mem))
             else
                 error("unsupported export $exp")
             end

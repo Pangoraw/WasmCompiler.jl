@@ -26,6 +26,16 @@ function _printwasm(io::IO, mod::WModule)
 
     !isempty(mod.types) && println(io)
 
+    for mem in mod.mems
+        println(io)
+        print(io, INDENT_S^indent, '(')
+        _printkw(io, "memory")
+        print(io, ' ', mem.type.min, ' ', mem.type.max)
+        print(io, ')')
+    end
+
+    !isempty(mod.mems) && println(io)
+
     ctx = IOContext(io, :indent => indent, :mod => mod)
     for func in mod.funcs
         println(io)
@@ -97,6 +107,13 @@ function _printwasm(io::IO, mod::WModule)
             !isnothing(imp.id) && (print_sigil(io, imp.id); print(io, ' '))
             _printwasm(io, imp.fntype)
             print(io, ')')
+        elseif imp isa MemImport
+            print(io, "(")
+            _printkw(io, "memory")
+            print(io, ' ')
+            !isnothing(imp.id) && (print_sigil(io, imp.id); print(io, ' '))
+            print(io, imp.mem.type.min, " ", imp.mem.type.max)
+            print(io, ")")
         else
             error("cannot handle import $imp")
         end
@@ -115,10 +132,15 @@ function _printwasm(io::IO, mod::WModule)
             print(io, " ")
             print_funcidx(ctx, exp.func)
             print(io, ")")
+        elseif exp isa MemExport
+            print(io, "\"$(exp.name)\" ", "(")
+            _printkw(io, "memory")
+            print(io, ' ', exp.mem - 1)
+            print(io, ')')
         else
             error("cannot handle export $exp")
         end
-        print(io, ")")
+        println(io, ")")
     end
     print(io, ")")
 end
@@ -412,7 +434,12 @@ function _printwasm(io::IO, inst::Inst)
     for f in fieldnames(typeof(inst))
         fieldval = getfield(inst, f)
         isnothing(fieldval) && continue
-        print(io, " ", fieldval)
+        if fieldval isa MemArg
+            !iszero(fieldval.offset) && print(io, " offset=", fieldval.offset)
+            !iszero(fieldval.align) && print(io, " align=", fieldval.align)
+        else
+            print(io, " ", fieldval)
+        end
     end
 end
 

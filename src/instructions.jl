@@ -61,6 +61,12 @@ end
 Base.:(==)(fntype1::FuncType, fntype2::FuncType) =
     fntype1.params == fntype2.params && fntype1.results == fntype2.results
 
+struct MemArg
+    align::UInt32
+    offset::UInt32
+end
+MemArg() = MemArg(0, 0)
+
 abstract type Inst end
 
 abstract type ContainerInst <: Inst end
@@ -120,8 +126,18 @@ for (WT, T) in zip((f32, f64), (Float32, Float64))
     @eval struct $(Symbol(WT, "_const")) <: Inst
         val::$T
     end
-    @eval struct $(Symbol(WT, "_load")) <: Inst end
-    @eval struct $(Symbol(WT, "_store")) <: Inst end
+
+    load_s = Symbol(WT, "_load")
+    @eval struct $load_s <: Inst
+        memarg::MemArg
+    end
+    @eval $load_s() = $load_s(MemArg())
+
+    store_s = Symbol(WT, "_store")
+    @eval struct $store_s <: Inst
+        memarg::MemArg
+    end
+    @eval $store_s() = $store_s(MemArg())
 
     for f in ("abs", "neg", "sqrt", "ceil", "floor", "trunc", "nearest")
         @eval struct $(Symbol(WT, "_", f)) <: UnaryInst end
@@ -137,8 +153,18 @@ for (WT, T) in zip((i32, i64), (Int32, Int64))
     @eval struct $(Symbol(WT, "_const")) <: Inst
         val::$T
     end
-    @eval struct $(Symbol(WT, "_load")) <: Inst end
-    @eval struct $(Symbol(WT, "_store")) <: Inst end
+
+    load_s = Symbol(WT, "_load")
+    @eval struct $load_s <: Inst
+        memarg::MemArg
+    end
+    @eval $load_s() = $load_s(MemArg())
+
+    store_s = Symbol(WT, "_store")
+    @eval struct $store_s <: Inst
+        memarg::MemArg
+    end
+    @eval $store_s() = $store_s(MemArg())
 
     for f in ("clz", "ctz", "popcnt", "eqz")
         @eval struct $(Symbol(WT, "_", f)) <: UnaryInst end
@@ -152,22 +178,61 @@ for (WT, T) in zip((i32, i64), (Int32, Int64))
     end
 end
 
-struct i32_load8_s <: Inst end
-struct i32_load8_u <: Inst end
-struct i64_load8_s <: Inst end
-struct i64_load8_u <: Inst end
+struct i32_load8_s <: Inst
+    memarg::MemArg
+end
+i32_load8_s() = i32_load8_s(MemArg())
+struct i32_load8_u <: Inst
+    memarg::MemArg
+end
+i32_load8_u() = i32_load8_u(MemArg())
+struct i64_load8_s <: Inst
+    memarg::MemArg
+end
+i64_load8_s() = i64_load8_s(MemArg())
+struct i64_load8_u <: Inst
+    memarg::MemArg
+end
+i64_load8_u() = i64_load8_u(MemArg())
 
-struct i32_load16_s <: Inst end
-struct i32_load16_u <: Inst end
-struct i64_load16_s <: Inst end
-struct i64_load16_u <: Inst end
+struct i32_load16_s <: Inst
+    memarg::MemArg
+end
+i32_load16_s() = i32_load16_s(MemArg())
+struct i32_load16_u <: Inst
+    memarg::MemArg
+end
+i32_load16_u() = i32_load16_u(MemArg())
+struct i64_load16_s <: Inst
+    memarg::MemArg
+end
+i64_load16_s() = i64_load16_s(MemArg())
+struct i64_load16_u <: Inst
+    memarg::MemArg
+end
+i64_load16_u() = i64_load16_u(MemArg())
 
-struct i32_store16 <: Inst end
-struct i64_store16 <: Inst end
+struct i32_store16 <: Inst
+    memarg::MemArg
+end
+i32_store16() = i32_store16(MemArg())
+struct i64_store16 <: Inst
+    memarg::MemArg
+end
+i64_store16() = i64_store16(MemArg())
 
-struct i64_store32 <: Inst end
-struct i64_load32_s <: Inst end
-struct i64_load32_u <: Inst end
+struct i64_store32 <: Inst
+    memarg::MemArg
+end
+i64_store32() = i64_store32(MemArg())
+struct i64_load32_s <: Inst
+    memarg::MemArg
+end
+i64_load32_s() = i64_load32_s(MemArg())
+struct i64_load32_u <: Inst
+    memarg::MemArg
+end
+i64_load32_u() = i64_load32_u(MemArg())
 
 struct i64_extend32_s <: UnaryInst end
 struct i64_extend_i32_s <: UnaryInst end

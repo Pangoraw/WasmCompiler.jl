@@ -105,6 +105,12 @@ function read_inst(io::IO)
         return global_get(one(Index) + LEB128.decode(io, UInt32))
     elseif tag == 0x24
         return global_set(one(Index) + LEB128.decode(io, UInt32))
+    elseif tag in 0x28:0x2b
+        inst = (i32_load, i64_load, f32_load, f64_load)[tag - 0x28 + 1]
+        return inst(MemArg(LEB128.decode(io, UInt32), LEB128.decode(io, UInt32)))
+    elseif tag in 0x36:0x39
+        inst = (i32_store, i64_store, f32_store, f64_store)[tag - 0x36 + 1]
+        return inst(MemArg(LEB128.decode(io, UInt32), LEB128.decode(io, UInt32)))
     elseif tag == 0x41
         return i32_const(LEB128.decode(io, Int32))
     elseif tag == 0x42
@@ -230,6 +236,13 @@ function wread(io::IO)
                     )
                 )
             end
+        elseif sid == 0x05
+            # 3. Memory Section
+            n_mems = LEB128.decode(io, UInt32)
+            for _ in 1:n_mems
+                memtype = MemoryType(LEB128.decode(io, UInt32), LEB128.decode(io, UInt32))
+                push!(wmod.mems, Mem(memtype))
+            end
         elseif sid == 0x07
             # 7. Export Section
             n_exports = LEB128.decode(io, UInt32)
@@ -241,6 +254,9 @@ function wread(io::IO)
                 if tag == 0x00
                     index = one(Index) + LEB128.decode(io, UInt32)
                     push!(wmod.exports, FuncExport(name, index))
+                elseif tag == 0x02
+                    index = one(Index) + LEB128.decode(io, UInt32)
+                    push!(wmod.exports, MemExport(name, index))
                 else
                     error("unsupported export tag $tag for export named \"$name\"")
                 end
