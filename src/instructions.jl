@@ -268,6 +268,62 @@ struct i64_trunc_f64_u <: UnaryInst end
 struct i32_wrap_i64 <: UnaryInst end
 struct f32_demote_f64 <: UnaryInst end
 
+struct v128_load <: Inst
+    memarg::MemArg
+end
+v128_load() = v128_load(MemArg())
+
+module Operators
+    @enum Operator eq ne lt gt le ge
+    needs_sign(op) = op > ne
+end
+using .Operators: Operator
+
+module Lanes
+    @enum Lane i8 i16 i32 i64 f32 f64
+    is_integer(lane::Lane) = lane <= i64
+    count(lane) =
+        is_integer(lane) ?
+            128 ÷ (2 ^ (3 + Int(lane))) :
+            lane == f32 ? 4 : 2
+end
+using .Lanes: Lane
+
+struct v128cmp <: Inst
+    cmp::Operator
+    lane::Lane
+    signed::Bool # for ints
+end
+v128cmp(cmp, lane) = v128cmp(cmp, lane, false)
+
+struct v128bitmask <: UnaryInst
+    lane::Lane
+end
+
+struct elem_drop <: Inst
+    elem::Index
+end
+struct table_init <: Inst
+    elem::Index
+    table::Index
+end
+struct table_copy <: Inst
+    src::Index
+    dst::Index
+end
+struct table_size <: Inst
+    idx::Index
+end
+struct table_grow <: Inst
+    idx::Index
+end
+struct table_fill <: Inst
+    idx::Index
+end
+
+struct memory_copy <: Inst end
+struct memory_fill <: Inst end
+
 struct drop <: Inst end
 struct select <: Inst
     valtype::Union{ValType,Nothing}
@@ -280,7 +336,7 @@ struct br <: TerminatorInst
     label::Index
 end
 struct br_if <: Inst
-    label::Inst
+    label::Index
 end
 struct br_table <: Inst
     labels::Vector{Int}

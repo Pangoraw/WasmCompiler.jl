@@ -2,14 +2,16 @@ const reverse_opcodes = Dict{UInt8,Any}(v => k for (k, v) in opcodes)
 
 function wread(io::IO, ::Type{ValType})
     x = read(io, UInt8)
-    if x == 0x7F
+    if x == 0x7f
         return i32
-    elseif x == 0x7E
+    elseif x == 0x7e
         return i64
-    elseif x == 0x7D
+    elseif x == 0x7d
         return f32
-    elseif x == 0x7C
+    elseif x == 0x7c
         return f64
+    elseif x == 0x7b
+        return v128
     elseif x == 0x67
         return StructRef(false, 1)
     else
@@ -93,6 +95,8 @@ function read_inst(io::IO)
         return If(fntype, trueinst, falseinst)
     elseif tag == 0x0C
         return br(LEB128.decode(io, UInt32))
+    elseif tag == 0x0d
+        return br_if(LEB128.decode(io, UInt32))
     elseif tag == 0x10
         return call(one(Index) + LEB128.decode(io, UInt32))
     elseif tag == 0x20
@@ -105,11 +109,12 @@ function read_inst(io::IO)
         return global_get(one(Index) + LEB128.decode(io, UInt32))
     elseif tag == 0x24
         return global_set(one(Index) + LEB128.decode(io, UInt32))
-    elseif tag in 0x28:0x2b
-        inst = (i32_load, i64_load, f32_load, f64_load)[tag - 0x28 + 1]
-        return inst(MemArg(LEB128.decode(io, UInt32), LEB128.decode(io, UInt32)))
-    elseif tag in 0x36:0x39
-        inst = (i32_store, i64_store, f32_store, f64_store)[tag - 0x36 + 1]
+    elseif tag in 0x28:0x39
+        inst = [i32_load, i64_load, f32_load, f64_load,
+                i32_load8_s, i32_load8_u, i32_load16_s, i32_load16_u,
+                i64_load8_s, i64_load8_u, i64_load16_s, i64_load16_u,
+                i64_load32_s, i64_load32_u,
+                i32_store, i64_store, f32_store, f64_store][tag - 0x28 + 1]
         return inst(MemArg(LEB128.decode(io, UInt32), LEB128.decode(io, UInt32)))
     elseif tag == 0x41
         return i32_const(LEB128.decode(io, Int32))
@@ -119,7 +124,49 @@ function read_inst(io::IO)
         return f32_const(read(io, Float32))
     elseif tag == 0x44
         return f64_const(read(io, Float64))
+    elseif tag == 0xfc # table/memory
+        tag = LEB128.decode(io, UInt32)
+        if tag == 10
+            @assert read(io, 2) == UInt8[0x00, 0x00]
+            return memory_copy()
+        elseif tag == 11
+            @assert read(io, UInt8) == 0x00
+            return memory_fill()
+        elseif tag == 12
+            return table_init(LEB128.decode(io, UInt32), LEB128.decode(io, UInt32))
+        elseif tag == 13
+            return elem_drop(LEB128.decode(io, UInt32))
+        elseif tag == 14
+            return table_copy(LEB128.decode(io, UInt32), LEB128.decode(io, UInt32))
+        elseif tag == 15
+            return table_grow(LEB128.decode(io, UInt32))
+        elseif tag == 16
+            return table_size(LEB128.decode(io, UInt32))
+        elseif tag == 17
+            return table_fill(LEB128.decode(io, UInt32))
+        else
+            error("invalid instruction code table 0xfc $tag")
+        end
+    elseif tag == 0xfd # v128
+        tag = LEB128.decode(io, UInt32)
+        if tag == 0x00
+            return v128_load(MemArg(LEB128.decode(io, UInt32), LEB128.decode(io, UInt32)))
+        elseif tag in 0x23:0x40
+            idx = (tag - 0x23) % 10
+            op = idx < 2 ?
+                Operators.Operator(idx) :
+                Operators.Operator(2 + (idx - 2) ÷ 2)
+            signed = Operators.needs_sign(op) && (idx - 2) % 2 == 0
+            lane = Lanes.Lane((tag - 0x23) ÷ 10)
+            return v128cmp(op, lane, signed)
+        elseif tag in (100,)
+            return v128bitmask(Lanes.i8)
+        else
+            tag = "0x" * string(tag; base=16)
+            error("invalid instruction code v128 0xfd $tag")
+        end
     else
+        tag = "0x" * string(tag; base=16)
         error("invalid instruction code $tag")
     end
 end
@@ -154,6 +201,7 @@ function wread(io::IO)
             name_length = LEB128.decode(io, UInt32)
             name = String(read(io, name_length))
             if name == "name"
+                @debug "Entering name section"
                 subsection_id = read(io, UInt8)
                 ss_length = LEB128.decode(io, UInt32)
                 ss_pos = position(io)
@@ -174,8 +222,9 @@ function wread(io::IO)
                 end
             else
                 @debug "Skipping custom section" name
-                seek(io, pos + section_length)
             end
+
+            seek(io, pos + section_length)
         elseif sid == 0x01
             # 1. Type Section
             n_types = LEB128.decode(io, UInt32)
@@ -243,6 +292,31 @@ function wread(io::IO)
                 memtype = MemoryType(LEB128.decode(io, UInt32), LEB128.decode(io, UInt32))
                 push!(wmod.mems, Mem(memtype))
             end
+        elseif sid == 0x04
+            # 4. Table Section
+            n_tables = LEB128.decode(io, UInt32) 
+            for _ in 1:n_tables
+                reftype = read(io, UInt8)
+                @assert reftype in (0x70, 0x6f) "invalid reftype $reftype"
+                tt = TableType(
+                    LEB128.decode(io, UInt32),
+                    LEB128.decode(io, UInt32),
+                    reftype == 0x70 ? FuncRef() : ExternRef()
+                )
+                push!(wmod.tables, Table(tt))
+            end
+        elseif sid == 0x06
+            # 6. Global Section
+            n_globals = LEB128.decode(io, UInt32)
+            for _ in n_globals
+                valtype = wread(io, ValType)
+                mut = read(io, UInt8) == 0x00
+                gt = GlobalType(mut, valtype)
+                init = Inst[]
+                read_inst_list!(io, init)
+                g = Global(nothing, gt, init)
+                push!(wmod.globals, g)
+            end
         elseif sid == 0x07
             # 7. Export Section
             n_exports = LEB128.decode(io, UInt32)
@@ -284,9 +358,28 @@ function wread(io::IO)
                 @assert position(io) == code_pos + n_code_bytes "malformed code section (function $i)"
                 wmod.funcs[i] = Func(nothing, fntype, locals, inst)
             end
+        elseif sid == 0x0B
+            # 11. Data Section
+            n_data = LEB128.decode(io, UInt32)
+            for _ in 1:n_data
+                mode = LEB128.decode(io, UInt32)
+                @assert mode in 0:2 "invalid data mode $mode"
+                offset = Inst[]
+                mem = 0
+                mode == 2 && (mem = LEB128.decode(io, UInt32))
+                if mode == 0 || mode == 2
+                    read_inst_list!(io, offset) 
+                end
+                mode = mode == 1 ?
+                  DataModePassive() :
+                  DataModeActive(mem, offset)
+                n_bytes = LEB128.decode(io, UInt32)
+                bytes = read(io, n_bytes)
+                push!(wmod.datas, Data(bytes, mode))
+            end
         end
 
-        @assert position(io) == pos + section_length
+        @assert position(io) == pos + section_length "failed to read section $sid"
     end
 
     wmod

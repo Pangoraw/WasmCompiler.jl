@@ -396,6 +396,15 @@ _printwasm(io::IO, ls::local_set) = (_printinst(io, "local.set"), print(io, ' ',
 _printwasm(io::IO, lt::local_tee) = (_printinst(io, "local.tee"), print(io, ' ', lt.n - 1))
 _printwasm(io::IO, lg::local_get) = (_printinst(io, "local.get"), print(io, ' ', lg.n - 1))
 
+function _printwasm(io::IO, cmp::v128cmp)
+    inst = string(cmp.lane, "x", Lanes.count(cmp.lane), ".", cmp.cmp)
+    if Operators.needs_sign(cmp.cmp)
+        inst *= "_" * (cmp.signed ? "_s" : "_u")
+    end
+    _printinst(io, inst)
+end
+_printwasm(io::IO, b::v128bitmask) = _printinst(io, string(b.lane, "x", Lanes.count(b.lane), ".bitmask"))
+
 _printwasm(io::IO, r::Union{ref_cast,ref_null}) = (_printinst(io, replace(string(nameof(typeof(r))), "_" => ".")); print(io, ' '); print_typeidx(io, r.typeidx))
 _printwasm(io::IO, sn::struct_new) = (_printinst(io, "struct.new"); print(io, ' '); print_typeidx(io, sn.typeidx))
 function _printwasm(io::IO, sg::struct_get)
@@ -418,7 +427,8 @@ function _printwasm(io::IO, sg::struct_get)
 end
 
 function _printwasm(io::IO, inst::Inst)
-    prefixes = ("i32", "i64", "f32", "f64", "ref", "struct", "string")
+    prefixes = ("i32", "i64", "f32", "f64",
+                "v128", "ref", "struct", "string")
 
     name = string(nameof(typeof(inst)))
     prefidx = findfirst(t -> startswith(name, string(t) * '_'), prefixes)
