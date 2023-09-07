@@ -81,6 +81,7 @@ wwrite(io::IO, ::WasmInt32) = write(io, 0x7F)
 wwrite(io::IO, ::WasmInt64) = write(io, 0x7E)
 wwrite(io::IO, ::WasmFloat32) = write(io, 0x7D)
 wwrite(io::IO, ::WasmFloat64) = write(io, 0x7C)
+wwrite(io::IO, ::WasmVector128) = write(io, 0x7B)
 
 const opcodes = Dict{Any,UInt8}(
     unreachable         => 0x00,
@@ -225,15 +226,35 @@ wwrite(io::IO, c::i64_const) = wwrite(io, 0x42, c.val)
 wwrite(io::IO, c::f32_const) = write(io, 0x43, c.val)
 wwrite(io::IO, c::f64_const) = write(io, 0x44, c.val)
 
-wwrite(io::IO, s::i32_load) = wwrite(io, 0x28, s.memarg)
-wwrite(io::IO, s::i64_load) = wwrite(io, 0x29, s.memarg)
-wwrite(io::IO, s::f32_load) = wwrite(io, 0x2a, s.memarg)
-wwrite(io::IO, s::f64_load) = wwrite(io, 0x2b, s.memarg)
 
-wwrite(io::IO, s::i32_store) = wwrite(io, 0x36, s.memarg)
-wwrite(io::IO, s::i64_store) = wwrite(io, 0x37, s.memarg)
-wwrite(io::IO, s::f32_store) = wwrite(io, 0x38, s.memarg)
-wwrite(io::IO, s::f64_store) = wwrite(io, 0x39, s.memarg)
+const MemoryOp = Union{i32_load, i64_load, f32_load, f64_load,
+                       i32_load8_s, i32_load8_u, i32_load16_s, i32_load16_u,
+                       i64_load8_s, i64_load8_u, i64_load16_s, i64_load16_u,
+                       i64_load32_s, i64_load32_u,
+                       i32_store, i64_store, f32_store, f64_store}
+
+function wwrite(io::IO, op::MemoryOp)
+    ops = [i32_load, i64_load, f32_load, f64_load,
+           i32_load8_s, i32_load8_u, i32_load16_s, i32_load16_u,
+           i64_load8_s, i64_load8_u, i64_load16_s, i64_load16_u,
+           i64_load32_s, i64_load32_u,
+           i32_store, i64_store, f32_store, f64_store] 
+    wwrite(io, 0x27 + UInt8(findfirst(==(typeof(op)), ops)), op.memarg)
+end
+
+
+wwrite(io::IO, ::memory_copy) = wwrite(io, 0xfc, UInt32(10), 0x00, 0x00)
+
+wwrite(io::IO, s::v128_load) = wwrite(io, 0xfd, UInt32(0), s.memarg)
+function wwrite(io::IO, cmp::v128cmp)
+    tag = UInt32(
+        0x23 +
+        Int(cmp.lane) * 10 +
+        Int(cmp.cmp)
+    )
+    wwrite(io, 0xfd, tag)
+end
+wwrite(io::IO, bm::v128bitmask) = wwrite(io, 0xfd, UInt32(100 + 32 * Int(bm.lane)))
 
 wwrite(io::IO, c::call) = wwrite(io, 0x10, c.func - one(c.func))
 
@@ -263,7 +284,8 @@ function wwrite(io::IO, if_::If)
     n += write(io, 0x0B)
 end
 
-wwrite(io::IO, b::br) = wwrite(io, 0x0C, b.label)
+wwrite(io::IO, b::br) = wwrite(io, 0x0c, b.label)
+wwrite(io::IO, b::br_if) = wwrite(io, 0x0d, b.label)
 
 function wwrite(io::IO, expr::Vector{Inst})
     n = 0
@@ -292,9 +314,11 @@ end
 function wwrite(io::IO, glob::Global)
     n = wwrite(io, glob.type.type, glob.type.mut ? 0x01 : 0x00)
     n += wwrite(io, glob.init)
+    n += wwrite(io, 0x0B)
     n
 end
 
+wwrite(path::String, wmod::WModule) = open(io -> wwrite(io, wmod), path, "w")
 function wwrite(io::IO, wmod::WModule)
     n = write(io, MAGIC)
     n += write(io, WASM_VERSION)

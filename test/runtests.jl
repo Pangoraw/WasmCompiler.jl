@@ -67,6 +67,39 @@ end
     end
 end
 
+@testset "max" begin
+    (; obj) = @code_wasm optimize=true mod=true max(0f0, 1)
+    mod = obj
+
+    wasm = WC.wasm(mod) |> Wasmtime.WasmByteVec
+
+    engine = Wasmtime.WasmEngine()
+    store = Wasmtime.WasmStore(engine)
+    wmodule = Wasmtime.WasmModule(store, wasm)
+    instance = Wasmtime.WasmInstance(store, wmodule)
+
+    wmax = Wasmtime.exports(instance).max
+    @test convert(Float32, only(wmax(NaN32, 1))) |> isnan
+    @test convert(Float32, only(wmax(+0f0,  0))) == 0f0
+end
+
+@testset "sqrt" begin
+    (; obj) = @code_wasm optimize=true mod=true sqrt(1f0)
+    mod = obj
+
+    wasm = WC.wasm(mod) |> Wasmtime.WasmByteVec
+
+    engine = Wasmtime.WasmEngine()
+    store = Wasmtime.WasmStore(engine)
+    wmodule = Wasmtime.WasmModule(store, wasm)
+    instance = Wasmtime.WasmInstance(store, wmodule)
+
+    wsqrt = Wasmtime.exports(instance).sqrt
+
+    @test convert(Float32, wsqrt(NaN32) |> only) |> isnan
+    @test_throws Exception convert(Float32, only(wsqrt(-1f0)))
+end
+
 @testset "WAT: Instructions" begin
     insts = WC.Inst[
         WC.i32_load(),

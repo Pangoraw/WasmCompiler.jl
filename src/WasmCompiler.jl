@@ -21,6 +21,7 @@ Base.show(io::IO, wat::Wat) = WasmCompiler._printwasm(IOContext(io, :print_sexpr
 
 """
     @code_wasm f(args...)
+    @code_wasm [optimize=false mod=false sexpr=false] f(args...)
 
 Returns the WebAssembly form of the called function.
 
@@ -75,6 +76,8 @@ macro code_wasm(exprs...)
     end
 end
 
-export @code_wasm
+const WC = @__MODULE__
+
+export @code_wasm, WC
 
 end # module WasmCompiler

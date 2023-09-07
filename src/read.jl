@@ -151,6 +151,8 @@ function read_inst(io::IO)
         tag = LEB128.decode(io, UInt32)
         if tag == 0x00
             return v128_load(MemArg(LEB128.decode(io, UInt32), LEB128.decode(io, UInt32)))
+        elseif tag == 0x0b
+            return v128_store(MemArg(LEB128.decode(io, UInt32), LEB128.decode(io,UInt32)))
         elseif tag in 0x23:0x40
             idx = (tag - 0x23) % 10
             op = idx < 2 ?
@@ -169,7 +171,8 @@ function read_inst(io::IO)
         end
     else
         tag = "0x" * string(tag; base=16)
-        error("invalid instruction code $tag")
+        offset = "0x" * string(position(io); base=16)
+        error("invalid instruction code $tag at $offset")
     end
 end
 
@@ -181,6 +184,7 @@ function read_inst_list!(io::IO, inst)
     inst
 end
 
+wread(path::String) = open(wread, path)
 function wread(io::IO)
     wmod = WModule()
 
@@ -250,9 +254,11 @@ function wread(io::IO)
                                     if code == -Int8(0x14) # struct
                                         ht = LEB128.decode(io, Int64)
                                         mut = read(io, UInt8)
+                                        @assert mut == 0x01 || mut == 0x00
+                                        mut = mut == 0x01
                                         if ht >= 0
                                             @debug "base type" ht mut
-                                            push!(fields, StructField(StructRef(true, ht), nothing, mut != 0))
+                                            push!(fields, StructField(StructRef(true, ht), nothing, mut))
                                         elseif ht == -Int8(0x19)
                                             @debug "heap type struct" ht
                                         else
@@ -312,7 +318,9 @@ function wread(io::IO)
             n_globals = LEB128.decode(io, UInt32)
             for _ in n_globals
                 valtype = wread(io, ValType)
-                mut = read(io, UInt8) == 0x00
+                mut = read(io, UInt8)
+                @assert mut == 0x00 || mut == 0x01
+                mut = mut == 0x01
                 gt = GlobalType(mut, valtype)
                 init = Inst[]
                 read_inst_list!(io, init)

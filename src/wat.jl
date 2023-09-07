@@ -359,7 +359,7 @@ end
 function print_globalidx(io::IO, idx)
     wmod = get(io, :mod, nothing)
     if isnothing(wmod)
-        print(io, idx)
+        print(io, idx - 1)
         return
     end
 
@@ -378,7 +378,7 @@ function print_globalidx(io::IO, idx)
     end
 
     if isnothing(name)
-        print(io, idx)
+        print(io, idx - 1)
         return
     end
     print_sigil(io, name)

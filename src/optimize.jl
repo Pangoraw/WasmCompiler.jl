@@ -23,6 +23,8 @@ function _make_tees!(instlist)
 
         inst isa local_set || continue
 
+        i > lastindex(instlist) && continue
+
         nextinst = instlist[i]
         nextinst isa local_get || continue
 
@@ -38,8 +40,9 @@ function _make_tees!(instlist)
 end
 
 function remove_return!(f)
-    isempty(f.inst) && return
-    if f.inst[end] isa unreachable &&
+    isempty(f.inst) && return f
+    if length(f.inst) >= 2 &&
+        f.inst[end] isa unreachable &&
         f.inst[end-1] isa return_
         pop!(f.inst); pop!(f.inst)
     elseif f.inst[end] isa return_

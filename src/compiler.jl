@@ -100,7 +100,7 @@ function emit_datatype!(ctx, @nospecialize(typ))
     haskey(ctx.datatype_dict, typ) && return ctx.datatype_dict[typ]
     push!(ctx.mod.globals, Global(string(nameof(typ), "-type"), GlobalType(true, StructRef(true, 2)), [ref_null(2)]))
     init = ctx.mod.funcs[1]
-    global_idx = length(ctx.mod.globals)
+    global_idx = count(imp -> imp isa GlobalImport, ctx.mod.imports) + length(ctx.mod.globals)
     push!(
         init.inst,
         string_const(string(nameof(typ))),
@@ -651,6 +651,15 @@ function emit_codes(ctx, ir, rt, nargs)
                     convert_val!(exprs[bidx], irtype(inst.args[2]), jl_value_t)
                     push!(exprs[bidx], global_set(jl_exception), throw_(jl_exception_tag))
                     continue
+                elseif f === Base.Math.sqrt_llvm
+                    argtype = irtype(inst.args[2])
+                    if argtype == f32
+                        push!(exprs[bidx], f32_sqrt())
+                    elseif argtype == f64
+                        push!(exprs[bidx], f64_sqrt())
+                    else
+                        throw(CompilationError(types, "invalid sqrt_llvm call with type $argtype"))
+                    end
                 else
                     throw(CompilationError(types, "Cannot handle call to $f @ $inst"))
                 end
@@ -820,27 +829,33 @@ function emit_func!(ctx, types)
     # _printwasm(stdout, f)
 
     f = if ctx.optimize
-        f |>
-            make_tees! |>
-            remove_unused! |>
-            sort_locals! |>
-            remove_nops! |>
-            merge_blocks! |>
-            remove_useless_branches! |>
-            merge_blocks! |>
-            remove_return! |>
-            leak_ifs!
+        optimize_func!(f)
     else
         f
     end
 
     pushfirst!(ctx.mod.funcs, f)
-    if !isnothing(ctx.mod.start) && ctx.mod.start > num_func_imports
-        if func_idx == ctx.mod.start
-            push!(ctx.mod.exports, FuncExport(name, func_idx))
-        end
+    if !isnothing(ctx.mod.start) &&
+        ctx.mod.start > num_func_imports
         ctx.mod.start += 1
     end
 
     f
+end
+
+function optimize!(mod)
+    foreach(optimize_func!, mod.funcs)
+    mod
+end
+function optimize_func!(f)
+    f |>
+        make_tees! |>
+        remove_unused! |>
+        sort_locals! |>
+        remove_nops! |>
+        merge_blocks! |>
+        remove_useless_branches! |>
+        merge_blocks! |>
+        remove_return! |>
+        leak_ifs!
 end
