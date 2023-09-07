@@ -159,8 +159,10 @@ function read_inst(io::IO)
             signed = Operators.needs_sign(op) && (idx - 2) % 2 == 0
             lane = Lanes.Lane((tag - 0x23) ÷ 10)
             return v128cmp(op, lane, signed)
-        elseif tag in (100,)
-            return v128bitmask(Lanes.i8)
+        elseif tag in 99:32:195
+            return v128all_true(Lanes.Lane((tag - 99) ÷ 32))
+        elseif tag in 100:32:196
+            return v128bitmask(Lanes.Lane((tag - 100) ÷ 32))
         else
             tag = "0x" * string(tag; base=16)
             error("invalid instruction code v128 0xfd $tag")

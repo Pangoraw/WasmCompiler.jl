@@ -296,6 +296,9 @@ struct v128cmp <: Inst
 end
 v128cmp(cmp, lane) = v128cmp(cmp, lane, false)
 
+struct v128all_true <: UnaryInst
+    lane::Lane
+end
 struct v128bitmask <: UnaryInst
     lane::Lane
 end
