@@ -660,6 +660,10 @@ function emit_codes(ctx, ir, rt, nargs)
                     else
                         throw(CompilationError(types, "invalid sqrt_llvm call with type $argtype"))
                     end
+                elseif nameof(f) == :T_load
+                    push!(exprs[bidx], f32_load())
+                elseif nameof(f) == :T_store
+                    push!(exprs[bidx], f32_store())
                 else
                     throw(CompilationError(types, "Cannot handle call to $f @ $inst"))
                 end
@@ -710,6 +714,15 @@ function emit_codes(ctx, ir, rt, nargs)
                 for arg in inst.args[begin+2:end]
                     emit_val!(exprs[bidx], arg)
                 end
+
+                if f === Main.T_load
+                    push!(exprs[bidx], f32_load(), local_set(getlocal!(ssa)))
+                    continue
+                elseif f === Main.T_store
+                    push!(exprs[bidx], f32_store())
+                    continue
+                end
+
                 mi = inst.args[1]
                 haskey(ctx.func_dict, mi.specTypes) || emit_func!(ctx, mi.specTypes)
                 funcidx = ctx.func_dict[mi.specTypes]
@@ -808,9 +821,11 @@ function emit_func!(ctx, types)
 
     functype = FuncType(
         locals[begin:nargs],
-        rt <: Union{} ?
+        rt === Nothing ?
           [] :
-          [isnumeric(rt) ? valtype(rt) : StructRef(false, struct_idx!(ctx, rt))],
+          [isnumeric(rt) ?
+              valtype(rt) :
+              StructRef(false, struct_idx!(ctx, rt))],
     )
 
     t = types.parameters[1]

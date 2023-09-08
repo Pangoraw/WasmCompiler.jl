@@ -50,6 +50,7 @@ valtype(::Type{Int64}) = i64
 valtype(::Type{UInt64}) = i64
 valtype(::Type{Float32}) = f32
 valtype(::Type{Float64}) = f64
+valtype(::Type{T}) where {T} = isprimitivetype(T) && sizeof(T) == 4 ? i32 : error("type $T cannot be represented in wasm")
 
 abstract type WasmType end
 
@@ -234,6 +235,11 @@ struct i64_load32_u <: Inst
 end
 i64_load32_u() = i64_load32_u(MemArg())
 
+struct i32_extend8_s <: UnaryInst end
+struct i32_extend16_s <: UnaryInst end
+
+struct i64_extend8_s <: UnaryInst end
+struct i64_extend16_s <: UnaryInst end
 struct i64_extend32_s <: UnaryInst end
 struct i64_extend_i32_s <: UnaryInst end
 struct i64_extend_i32_u <: UnaryInst end
