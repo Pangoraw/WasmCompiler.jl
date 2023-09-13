@@ -715,10 +715,13 @@ function emit_codes(ctx, ir, rt, nargs)
                     emit_val!(exprs[bidx], arg)
                 end
 
-                if f === Main.T_load
+                # NOTE: Hack to implement memory backed arrays
+                # ....  This should be replaced with a proper wasm injection
+                # ....  mechanism.
+                if nameof(f) === :T_load && parentmodule(f) == Main
                     push!(exprs[bidx], f32_load(), local_set(getlocal!(ssa)))
                     continue
-                elseif f === Main.T_store
+                elseif nameof(f) === :T_store && parentmodule(f) == Main
                     push!(exprs[bidx], f32_store())
                     continue
                 end
