@@ -60,10 +60,11 @@ function read_block_type(io::IO)
     if next == 0x40
         read(io, UInt8)
         return FuncType([], [])
-    elseif next in 0x7C:0x7F
+    elseif next in 0x7b:0x7f
         return FuncType([], [wread(io, ValType)])
     else
-        error("unsupported block type $(next)")
+        s = LEB128.decode(io, Int32)
+        error("unsupported block type $(next) $s")
     end
 end
 
@@ -165,6 +166,8 @@ function read_inst(io::IO)
             return v128all_true(Lanes.Lane((tag - 99) ÷ 32))
         elseif tag in 100:32:196
             return v128bitmask(Lanes.Lane((tag - 100) ÷ 32))
+        elseif tag in (0xe7,0xf3)
+            return v128div(tag == 0xe7 ? Lanes.f32 : Lanes.f64)
         else
             tag = "0x" * string(tag; base=16)
             error("invalid instruction code v128 0xfd $tag")
@@ -279,6 +282,7 @@ function wread(io::IO)
                     end
                 end
             end
+            @debug "type section $(length(fntypes)) types"
         elseif sid == 0x03
             # 3. Func Section
             n_funcs = LEB128.decode(io, UInt32)

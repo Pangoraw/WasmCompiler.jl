@@ -205,7 +205,8 @@ function convert_val!(inst, from, to)
     end
 end
 
-isnumeric(@nospecialize typ) = isprimitivetype(typ) && sizeof(typ) <= sizeof(Int64)
+isnumeric(@nospecialize typ) =
+    isprimitivetype(typ) && sizeof(typ) ∈ (1,2,4,8,16)
 
 function emit_codes(ctx, ir, rt, nargs)
     (; debug) = ctx
@@ -528,6 +529,8 @@ function emit_codes(ctx, ir, rt, nargs)
                         local_set(getlocal!(ssa)),
                     )
                     continue
+                elseif f === Core.typeassert
+                    continue
                 elseif f === Base.getfield
                     field = inst.args[3]
                     typ = jltype(inst.args[2])
@@ -555,6 +558,7 @@ function emit_codes(ctx, ir, rt, nargs)
                         arg = getproperty(arg.mod, arg.name) 
                     end
                     if arg isa DataType
+                        @info "saving" arg f=inst.args[begin]
                         push!(exprs[bidx], global_get(emit_datatype!(ctx, arg)))
                         continue
                     end
@@ -660,6 +664,8 @@ function emit_codes(ctx, ir, rt, nargs)
                     else
                         throw(CompilationError(types, "invalid sqrt_llvm call with type $argtype"))
                     end
+                elseif f === Core.typeassert
+                    continue
                 elseif nameof(f) == :T_load
                     push!(exprs[bidx], f32_load())
                 elseif nameof(f) == :T_store
@@ -711,19 +717,32 @@ function emit_codes(ctx, ir, rt, nargs)
                     push!(exprs[bidx], unreachable())
                     continue
                 end
-                for arg in inst.args[begin+2:end]
-                    emit_val!(exprs[bidx], arg)
-                end
 
                 # NOTE: Hack to implement memory backed arrays
                 # ....  This should be replaced with a proper wasm injection
                 # ....  mechanism.
-                if nameof(f) === :T_load && parentmodule(f) == Main
-                    push!(exprs[bidx], f32_load(), local_set(getlocal!(ssa)))
+                if f isa Function && nameof(f) === :T_load && parentmodule(f) == Main
+                    arg1 = inst.args[begin+2]
+                    emit_val!(exprs[bidx], inst.args[end])
+                    push!(exprs[bidx], arg1 == Float32 ? f32_load() : v128_load(),
+                                       local_set(getlocal!(ssa)))
                     continue
-                elseif nameof(f) === :T_store && parentmodule(f) == Main
-                    push!(exprs[bidx], f32_store())
+                elseif f isa Function && nameof(f) === :T_store && parentmodule(f) == Main
+                    targ,arg1,arg2 = inst.args[begin+1:end]
+                    emit_val!(exprs[bidx], arg1)
+                    emit_val!(exprs[bidx], arg2)
+                    push!(exprs[bidx], targ == Float32 ? f32_store() : v128_store())
                     continue
+                elseif f isa Function && nameof(f) === :_wasmcall && parentmodule(f) == Main
+                    _,insts,ops... = inst.args[begin+2:end]
+                    foreach(op -> emit_val!(exprs[bidx], op), ops)
+                    append!(exprs[bidx], insts)
+                    push!(exprs[bidx], local_set(getlocal!(ssa)))
+                    continue
+                end
+
+                for arg in inst.args[begin+2:end]
+                    emit_val!(exprs[bidx], arg)
                 end
 
                 mi = inst.args[1]
@@ -850,6 +869,21 @@ function emit_func!(ctx, types)
         optimize_func!(f)
     else
         f
+    end
+
+    if isempty(ctx.mod.mems) && !any(imp -> imp isa MemImport, ctx.mod.imports)
+        has_mem_inst = false
+        foreach(f) do inst
+            has_mem_inst |= inst isa Union{f32_store,f32_load,i32_load,
+                                           i32_store,i64_load,i64_store,
+                                           v128_store,v128_load} # TODO: complete
+        end
+
+        # Add a memory and export it
+        if has_mem_inst
+            push!(ctx.mod.mems, Mem(MemoryType(0,32_000)))
+            push!(ctx.mod.exports, MemExport("memory", 1))
+        end
     end
 
     pushfirst!(ctx.mod.funcs, f)

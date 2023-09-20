@@ -50,7 +50,12 @@ valtype(::Type{Int64}) = i64
 valtype(::Type{UInt64}) = i64
 valtype(::Type{Float32}) = f32
 valtype(::Type{Float64}) = f64
-valtype(::Type{T}) where {T} = isprimitivetype(T) && sizeof(T) == 4 ? i32 : error("type $T cannot be represented in wasm")
+valtype(::Type{T}) where {T} =
+    isprimitivetype(T) &&
+    sizeof(T) == 4 ? i32 :
+    sizeof(T) == 8 ? i64 :
+    sizeof(T) == 16 ? v128 :
+    error("type $T cannot be represented in wasm")
 
 abstract type WasmType end
 
@@ -305,6 +310,14 @@ struct v128cmp <: Inst
     signed::Bool # for ints
 end
 v128cmp(cmp, lane) = v128cmp(cmp, lane, false)
+
+struct v128splat <: UnaryInst
+    lane::Lane
+end
+
+struct v128div <: BinaryInst
+    lane::Lane
+end
 
 struct v128all_true <: UnaryInst
     lane::Lane
