@@ -270,6 +270,7 @@ function wwrite(io::IO, splt::v128splat)
 end
 function wwrite(io::IO, d::v128div)
     @assert d.lane ∈ (Lanes.f32, Lanes.f64) "unimplemented $d"
+    @assert d.op == MathOperators.div
     wwrite(io, 0xfd, UInt32(231 + 12 * (d.lane == Lanes.f64)))
 end
 wwrite(io::IO, bm::v128bitmask) = wwrite(io, 0xfd, UInt32(100 + 32 * Int(bm.lane)))
