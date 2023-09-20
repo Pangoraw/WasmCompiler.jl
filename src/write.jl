@@ -362,7 +362,7 @@ function wwrite(io::IO, wmod::WModule)
         for imp in wmod.imports
             if imp isa FuncImport
                 wwrite(sio, imp.module_name, imp.name)
-                wwrite(sio, 0x00, UInt32(findfirst(==(imp.fntype), fntypes)))
+                wwrite(sio, 0x00, UInt32(findfirst(==(imp.fntype), fntypes)) - one(UInt32))
             elseif imp isa GlobalImport
                 wwrite(sio, imp.module_name, imp.name)
                 wwrite(sio, 0x03, imp.type.type, imp.type.mut ? 0x01 : 0x00)

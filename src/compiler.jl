@@ -58,6 +58,12 @@ RuntimeModule() =
       ], [],
   )
 
+MallocModule() =
+    WModule([], [], [], [Mem(MemoryType(0,32_000))], [], [], [], nothing, [
+        FuncImport("env", "malloc", "malloc", FuncType([i32], [i32])),
+        FuncImport("env", "free", "free", FuncType([i32], [])),
+    ], [])
+
 # Useful indices in RuntimeModule
 
 const jl_symbol = 1
@@ -85,6 +91,9 @@ const jl_symbol_t = StructRef(false, 7)
 const jl_exception = 1
 const jl_exception_tag = 1
 
+"How to handle mutable types and allocations"
+@enum CompilationMode GCProposal Malloc
+
 struct CodegenContext
     mod::WModule
     type_dict::Dict
@@ -92,9 +101,10 @@ struct CodegenContext
     datatype_dict::Dict
     optimize::Bool
     debug::Bool
+    mode::CompilationMode
 end
-CodegenContext(module_=RuntimeModule(); debug=false, optimize=false) =
-    CodegenContext(module_, Dict(), Dict(), Dict(), optimize, debug)
+CodegenContext(module_=RuntimeModule(); debug=false, optimize=false, mode=length(module_.imports) == 2 ? Malloc : GCProposal) =
+    CodegenContext(module_, Dict(), Dict(), Dict(), optimize, debug, mode)
 
 function emit_datatype!(ctx, @nospecialize(typ))
     haskey(ctx.datatype_dict, typ) && return ctx.datatype_dict[typ]
@@ -248,7 +258,9 @@ function emit_codes(ctx, ir, rt, nargs)
 
     function irtype(val)
         typ = jltype(val)
-        isnumeric(typ) ? valtype(typ) : jl_value_t
+        isnumeric(typ) ? valtype(typ) :
+            ctx.mode == GCProposal ?
+                jl_value_t : i32
     end
 
     function emit_val!(expr, val)
@@ -686,7 +698,9 @@ function emit_codes(ctx, ir, rt, nargs)
                 if !isdefined(inst, :val)
                     continue
                 end
-                rt_type = isnumeric(rt) ? valtype(rt) : jl_value_t
+                rt_type = isnumeric(rt) ? valtype(rt) :
+                    ctx.mode == GCProposal ?
+                        jl_value_t : i32
                 emit_val!(
                     exprs[bidx],
                     inst.val,
@@ -760,17 +774,34 @@ function emit_codes(ctx, ir, rt, nargs)
                 push!(exprs[bidx], local_set(getlocal!(ssa)))
             elseif Meta.isexpr(inst, :new)
                 typ = resolve_arg(inst, 1)
-                push!(exprs[bidx], global_get(emit_datatype!(ctx, typ)))
-                for arg in inst.args[begin+1:end]
-                    emit_val!(exprs[bidx], arg)
+
+                # Malloc
+                if ctx.mode == Malloc
+                    @assert ismutabletype(typ) && isstructtype(typ) "invalid new for type $typ"
+                    sz = sizeof(typ)
+                    loc = getlocal!(ssa)
+                    push!(exprs[bidx], i32_const(sz), call(1), local_set(loc))
+                    for (arg, f) in zip(inst.args[begin+1:end], 1:fieldcount(typ))
+                        push!(exprs[bidx], local_get(loc))
+                        emit_val!(exprs[bidx], arg)
+                        st = irtype(arg) == i32 ?
+                            i32_store(MemArg(0,fieldoffset(typ,f))) :
+                            i64_store(MemArg(0,fieldoffset(typ,f)))
+                        push!(exprs[bidx], st)
+                    end
+                elseif ctx.mode == GCProposal# GC
+                    push!(exprs[bidx], global_get(emit_datatype!(ctx, typ)))
+                    for arg in inst.args[begin+1:end]
+                        emit_val!(exprs[bidx], arg)
+                    end
+                    structidx = struct_idx!(ctx, typ)
+                    push!(
+                        exprs[bidx],
+                        struct_new(structidx), # $jl-XXX
+                        ref_cast(1), # $jl-value-t
+                        local_set(getlocal!(ssa)),
+                    )
                 end
-                structidx = struct_idx!(ctx, typ)
-                push!(
-                    exprs[bidx],
-                    struct_new(structidx), # $jl-XXX
-                    ref_cast(1), # $jl-value-t
-                    local_set(getlocal!(ssa)),
-                )
             else
                 @warn "Unhandled instruction" inst typeof(inst)
             end
@@ -809,7 +840,7 @@ end
 
 emit_func(f, types; optimize=false, debug=false) = emit_func!(CodegenContext(; optimize, debug), f, types)
 emit_func!(mod::WModule, f, types; kwargs...) = emit_func!(CodegenContext(mod; kwargs...), f, types)
-emit_func!(ctx, f, types) = emit_func!(ctx, Tuple{typeof(f), types.parameters...})
+emit_func!(ctx, f, types) = emit_func!(ctx, Tuple{Core.Typeof(f), types.parameters...})
 
 function emit_func!(ctx, types)
     ircodes = Base.code_ircode_by_type(types)
@@ -847,7 +878,9 @@ function emit_func!(ctx, types)
           [] :
           [isnumeric(rt) ?
               valtype(rt) :
-              StructRef(false, struct_idx!(ctx, rt))],
+              ctx.mode == GCProposal ?
+              StructRef(false, struct_idx!(ctx, rt)) :
+              i32],
     )
 
     t = types.parameters[1]

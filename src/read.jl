@@ -218,11 +218,24 @@ function wread(io::IO)
                     n_named_functions = LEB128.decode(io, UInt32)
                     n_imports = count(imp -> imp isa FuncImport, wmod.imports)
                     for _ in 1:n_named_functions
-                        func_index = LEB128.decode(io, UInt32) - n_imports + 1
+                        func_index = LEB128.decode(io, UInt32) + 1
                         name_length = LEB128.decode(io, UInt32)
                         name = String(read(io, name_length))
-                        (; fntype, locals, inst) = wmod.funcs[func_index]
-                        wmod.funcs[func_index] = Func(name, fntype, locals, inst)
+                        if func_index <= n_imports
+                            fi = 1
+                            func_index = findfirst(imp -> imp isa FuncImport &&
+                                                          (fi+=1)-1 == func_index,
+                                                   wmod.imports)
+                            fimport = wmod.imports[func_index]
+                            wmod.imports[func_index] = FuncImport(
+                                fimport.module_name,
+                                fimport.name, name, fimport.fntype)
+                            continue
+                        else
+                            func_index -= n_imports
+                            (; fntype, locals, inst) = wmod.funcs[func_index]
+                            wmod.funcs[func_index] = Func(name, fntype, locals, inst)
+                        end
                     end
                     @assert position(io) == ss_pos + ss_length
                 else
@@ -283,6 +296,28 @@ function wread(io::IO)
                 end
             end
             @debug "type section $(length(fntypes)) types"
+        elseif sid == 0x02
+            # 2. Import Section
+            n_imports = LEB128.decode(io, UInt32)
+            for _ in 1:n_imports
+                mod_length = LEB128.decode(io, UInt32)
+                mod = String(read(io, mod_length))
+                name_length = LEB128.decode(io, UInt32)
+                name = String(read(io, name_length))
+                importdesc = read(io, UInt8)
+                if importdesc == 0x00
+                    typeidx = LEB128.decode(io, UInt32)
+                    push!(wmod.imports, FuncImport(mod, name,
+                                                   nothing, fntypes[typeidx+1]))
+                elseif importdesc == 0x02
+                    lim = read(io, UInt8)
+                    memtype = MemoryType(
+                        LEB128.decode(io, UInt32),
+                        lim == 0x00 ? typemax(UInt32) : LEB128.decode(io, UInt32)
+                    )
+                    push!(wmod.imports, MemImport(mod, name, nothing, Mem(memtype)))
+                end
+            end
         elseif sid == 0x03
             # 3. Func Section
             n_funcs = LEB128.decode(io, UInt32)
@@ -298,7 +333,7 @@ function wread(io::IO)
                 )
             end
         elseif sid == 0x05
-            # 3. Memory Section
+            # 5. Memory Section
             n_mems = LEB128.decode(io, UInt32)
             for _ in 1:n_mems
                 memtype = MemoryType(LEB128.decode(io, UInt32), LEB128.decode(io, UInt32))

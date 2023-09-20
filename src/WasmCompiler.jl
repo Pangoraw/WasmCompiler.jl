@@ -55,9 +55,11 @@ macro code_wasm(exprs...)
     if wmod !== false || !(optimize isa Bool) || print_sexpr
         quote
             types = Tuple{map(Core.Typeof, $(args))...}
-            module_ = $(wmod) !== :runtime ?
-                WasmCompiler.WModule() :
-                WasmCompiler.RuntimeModule()
+            module_ = $(wmod) === :runtime ?
+                WasmCompiler.RuntimeModule() :
+                $(wmod) === :malloc ?
+                WasmCompiler.MallocModule() :
+                WasmCompiler.WModule()
             WasmCompiler.emit_func!(module_, $f, types; optimize=$optimize !== false)
             if applicable(nameof, $f)
                 WasmCompiler.export!(module_, string(nameof($f)), 1)

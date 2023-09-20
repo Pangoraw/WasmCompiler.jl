@@ -146,6 +146,7 @@ function _printwasm(io::IO, mod::WModule)
 end
 
 function print_sigil(io::IO, sigil)
+    isnothing(sigil) && return
     get(io, :color, false) ?
       printstyled(io, '$', sigil; color=:blue) :
       print(io, '$', sigil)
