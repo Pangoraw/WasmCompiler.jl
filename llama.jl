@@ -21,10 +21,10 @@ Base.size(::WasmArray{T,N,S}) where {T,N,S} = S
 const f32x4 = Vec{4,Float32}
 
 import Base: +, -, *, /
-a::f32x4 + b::f32x4 = _wasmcall(f32x4, (WC.f32x4_add,), a, b)
-a::f32x4 - b::f32x4 = _wasmcall(f32x4, (WC.f32x4_sub,), a, b)
-a::f32x4 * b::f32x4 = _wasmcall(f32x4, (WC.f32x4_mul,), a, b)
-a::f32x4 / b::f32x4 = _wasmcall(f32x4, (WC.f32x4_div,), a, b)
+a::f32x4 + b::f32x4 = _wasmcall(f32x4, (WC.f32x4_add(),), a, b)
+a::f32x4 - b::f32x4 = _wasmcall(f32x4, (WC.f32x4_sub(),), a, b)
+a::f32x4 * b::f32x4 = _wasmcall(f32x4, (WC.f32x4_mul(),), a, b)
+a::f32x4 / b::f32x4 = _wasmcall(f32x4, (WC.f32x4_div(),), a, b)
 
 @inline Base.sum(::Vec{N,T}) where {N,T} = convert(T, 42)
 

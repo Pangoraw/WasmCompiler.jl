@@ -157,9 +157,9 @@ function read_inst(io::IO)
         elseif tag in 0x23:0x40
             idx = (tag - 0x23) % 10
             op = idx < 2 ?
-                Operators.Operator(idx) :
-                Operators.Operator(2 + (idx - 2) ÷ 2)
-            signed = Operators.needs_sign(op) && (idx - 2) % 2 == 0
+                CmpOperators.CmpOperator(idx) :
+                CmpOperators.CmpOperator(2 + (idx - 2) ÷ 2)
+            signed = CmpOperators.needs_sign(op) && (idx - 2) % 2 == 0
             lane = Lanes.Lane((tag - 0x23) ÷ 10)
             return v128cmp(op, lane, signed)
         elseif tag in 99:32:195

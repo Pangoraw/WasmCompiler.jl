@@ -288,11 +288,18 @@ struct v128_load <: Inst
 end
 v128_load() = v128_load(MemArg())
 
-module Operators
-    @enum Operator eq ne lt gt le ge
+enum_values(E) = E.(Int(typemin(E)):Int(typemax(E)))
+
+module CmpOperators
+    @enum CmpOperator eq ne lt gt le ge
     needs_sign(op) = op > ne
 end
-using .Operators: Operator
+using .CmpOperators: CmpOperator
+
+module MathOperators
+    @enum MathOperator add sub mul div
+end
+using .MathOperators: MathOperator
 
 module Lanes
     @enum Lane i8 i16 i32 i64 f32 f64
@@ -315,8 +322,20 @@ struct v128splat <: UnaryInst
     lane::Lane
 end
 
-struct v128div <: BinaryInst
+for lane in enum_values(Lane)
+    name = Symbol(lane, "x", Lanes.count(lane), "_splat")
+    @eval $name() = v128splat($lane)
+end
+
+struct v128bin <: BinaryInst
     lane::Lane
+    op::MathOperator
+end
+
+for (op, lane) in Iterators.product(enum_values(MathOperator),
+                                    enum_values(Lane))
+    name = Symbol(lane, "x", Lanes.count(lane), "_", op)
+    @eval $name() = v128bin($lane,  $op)
 end
 
 struct v128all_true <: UnaryInst
