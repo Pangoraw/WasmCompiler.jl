@@ -404,7 +404,7 @@ function _printwasm(io::IO, cmp::v128cmp)
     _printinst(io, inst)
 end
 _printwasm(io::IO, b::v128bitmask) = _printinst(io, string(b.lane, "x", Lanes.count(b.lane), ".bitmask"))
-_printwasm(io::IO, b::v128div) = _printinst(io, string(b.lane, "x", Lanes.count(b.lane), ".div"))
+_printwasm(io::IO, b::v128bin) = _printinst(io, string(b.lane, "x", Lanes.count(b.lane), b.op))
 _printwasm(io::IO, b::v128all_true) = _printinst(io, string(b.lane, "x", Lanes.count(b.lane), ".all_true"))
 
 _printwasm(io::IO, r::Union{ref_cast,ref_null}) = (_printinst(io, replace(string(nameof(typeof(r))), "_" => ".")); print(io, ' '); print_typeidx(io, r.typeidx))
