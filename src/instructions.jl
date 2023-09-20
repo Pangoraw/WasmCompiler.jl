@@ -312,7 +312,7 @@ end
 using .Lanes: Lane
 
 struct v128cmp <: Inst
-    cmp::Operator
+    cmp::CmpOperator
     lane::Lane
     signed::Bool # for ints
 end
