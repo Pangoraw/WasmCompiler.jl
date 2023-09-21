@@ -20,6 +20,9 @@ Base.size(::WasmArray{T,N,S}) where {T,N,S} = S
 
 const f32x4 = Vec{4,Float32}
 
+Vec(f::Float32) = _wasmcall(f32x4, (WC.f32x4_splat(),), f)
+Vec(i::Int32) = _wasmcall(i32x4, (WC.i32x4_splat(),), i)
+
 import Base: +, -, *, /
 a::f32x4 + b::f32x4 = _wasmcall(f32x4, (WC.f32x4_add(),), a, b)
 a::f32x4 - b::f32x4 = _wasmcall(f32x4, (WC.f32x4_sub(),), a, b)
@@ -113,11 +116,6 @@ function matmul(xout, x, w)
         xout[i] = val
     end
 end
-
-Vec(f::Float32) = _wasmcall(f32x4, (WC.v128splat(WC.Lanes.f32),), f)
-
-Base.:/(a::f32x4, b::f32x4) =
-    _wasmcall(f32x4, (WC.v128div(WC.Lanes.f32),), a, b)
 
 @noinline function _wasmcall(t, insts, args...)
     Main.unknown()::t
