@@ -36,6 +36,21 @@ function _printwasm(io::IO, mod::WModule)
 
     !isempty(mod.mems) && println(io)
 
+    for data in mod.datas
+        println(io)
+        print(io, INDENT_S^indent, '(')
+        _printkw(io, "data")
+        print(io, ' ')
+        if data.mode isa DataModeActive
+            print(io, data.mode.memory, " (")
+            _printwasm(io, data.mode.offset) 
+            print(io, ") ")
+        end
+        print(io, '"', String(data.init), "\")")
+    end
+
+    !isempty(mod.datas) && println(io)
+
     ctx = IOContext(io, :indent => indent, :mod => mod)
     for func in mod.funcs
         println(io)
