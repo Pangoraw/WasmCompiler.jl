@@ -336,7 +336,10 @@ function wread(io::IO)
             # 5. Memory Section
             n_mems = LEB128.decode(io, UInt32)
             for _ in 1:n_mems
-                memtype = MemoryType(LEB128.decode(io, UInt32), LEB128.decode(io, UInt32))
+                has_max = read(io, UInt8) == 0x01
+                memtype = has_max ?
+                    MemoryType(LEB128.decode(io, UInt32), LEB128.decode(io, UInt32)) :
+                    MemoryType(LEB128.decode(io, UInt32), typemax(UInt32))
                 push!(wmod.mems, Mem(memtype))
             end
         elseif sid == 0x04

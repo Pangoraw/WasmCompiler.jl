@@ -59,10 +59,10 @@ RuntimeModule() =
   )
 
 MallocModule() =
-    WModule([], [], [], [Mem(MemoryType(0,32_000))], [], [], [], nothing, [
+    WModule([], [], [], [Mem(MemoryType(1,32))], [], [], [], nothing, [
         FuncImport("env", "malloc", "malloc", FuncType([i32], [i32])),
         FuncImport("env", "free", "free", FuncType([i32], [])),
-    ], [])
+    ], [MemExport("memory", 1)])
 
 # Useful indices in RuntimeModule
 
@@ -226,7 +226,10 @@ function emit_codes(ctx, ir, rt, nargs)
 
     # TODO: handle first arg properly
     locals = ValType[
-        isnumeric(argtype) ? valtype(argtype) : StructRef(false, struct_idx!(ctx, argtype))
+        isnumeric(argtype) ?
+            valtype(argtype) :
+            ctx.mod == GCProposal ?
+              StructRef(false, struct_idx!(ctx, argtype)) : i32
         for argtype in map(widenconst, @view ir.argtypes[begin+1:begin+nargs])
     ]
 
@@ -543,6 +546,36 @@ function emit_codes(ctx, ir, rt, nargs)
                     continue
                 elseif f === Core.typeassert
                     continue
+                elseif f === Base.setfield!
+                    op, field, v = inst.args[2:4]
+                    typ = jltype(op)
+                    irtyp = irtype(op)
+                    fieldidx = if field isa QuoteNode && field.value isa Symbol
+                        field = field.value
+                        argtype = irtype(inst.args[2])
+                        findfirst(==(field), fieldnames(typ))
+                    elseif field isa Int
+                        field
+                    else
+                        throw(CompilationError(types, "invalid setfield! $inst"))
+                    end
+
+                    if ctx.mode == Malloc
+                        emit_val!(exprs[bidx], op)
+                        emit_val!(exprs[bidx], v)
+                        ftyp = valtype(fieldtype(typ, fieldidx))
+                        push!(
+                            exprs[bidx],
+                            ftyp == i32 ?
+                                i32_store(MemArg(0,fieldoffset(typ,fieldidx))) :
+                                i64_store(MemArg(0,fieldoffset(typ,fieldidx))))
+                        emit_val!(exprs[bidx], v) # setfield! returns its value
+                        push!(exprs[bidx], local_set(getlocal!(ssa)))
+                    else
+                        throw(CompilationError(types, "unimplemented setfield!"))
+                    end
+
+                    continue
                 elseif f === Base.getfield
                     field = inst.args[3]
                     typ = jltype(inst.args[2])
@@ -555,14 +588,28 @@ function emit_codes(ctx, ir, rt, nargs)
                     else
                         throw(CompilationError(types, "invalid getfield $inst"))
                     end
-                    structidx = struct_idx!(ctx, typ)
+
                     emit_val!(exprs[bidx], inst.args[2]),
-                    push!(
-                        exprs[bidx],
-                        ref_cast(structidx),
-                        struct_get(structidx, fieldidx + 1 #= skip jl-value-type =#),
-                        local_set(getlocal!(ssa)),
-                    )
+                    if ctx.mode == Malloc
+                        @assert irtype(inst.args[2]) == i32
+                        outtyp = irtype(ssa)
+                        @assert outtyp in (i32,i64) (irtype(ssa), typ)
+                        push!(
+                            exprs[bidx],
+                            outtyp == i32 ?
+                                i32_load(MemArg(0,fieldoffset(typ,fieldidx))) :
+                                i64_load(MemArg(0,fieldoffset(typ,fieldidx))),
+                            local_set(getlocal!(ssa)),
+                        )
+                    elseif ctx.mode == GCProposal
+                        structidx = struct_idx!(ctx, typ)
+                        push!(
+                            exprs[bidx],
+                            ref_cast(structidx),
+                            struct_get(structidx, fieldidx + 1 #= skip jl-value-type =#),
+                            local_set(getlocal!(ssa)),
+                        )
+                    end
                     continue
                 end
                 for arg in inst.args[begin+1:end]

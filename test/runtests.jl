@@ -8,6 +8,7 @@ using WasmCompiler:
 import Wasmtime
 using Wasmtime: WasmEngine, WasmStore, WasmModule, WasmInstance
 using Wasmtime: WasmtimeStore, WasmtimeModule, WasmtimeInstance
+using Wasmtime: exports
 using Test
 
 @testset "add" begin
@@ -233,6 +234,50 @@ end
     @test length(code) == 2
     @test first(code) == i32_const(1)
     @test last(code) == drop() 
+end
+
+mutable struct X
+    x::Int
+    y::Int
+end
+
+function g!(x)
+    x.y = 10x.x + x.y
+end
+
+@testset "Mutable structs on memory" begin
+    x = X(1,2)
+
+    (; obj) = @code_wasm optimize=false sexpr=true mod=:malloc g!(x)
+    num_imports = count(imp -> imp isa WC.FuncImport, obj.imports)
+    empty!(obj.imports) # remove malloc/free imports
+    map!(obj.exports, obj.exports) do exp # renumber func exports
+        exp isa WC.FuncExport || return exp
+        WC.FuncExport(exp.name, exp.func - num_imports)
+    end
+
+    code = WC.wasm(obj)
+
+    engine = WasmEngine()
+    store = Wasmtime.WasmtimeStore(engine)
+    module_ = Wasmtime.WasmtimeModule(engine, code)
+    instance = Wasmtime.WasmtimeInstance(store, module_)
+
+    memory = exports(instance).memory
+    wg! = exports(instance).g!
+
+    buf = reinterpret(Int, memory)
+    addr = 12
+    buf[addr:addr+1] .= (x.x, x.y)
+    @test buf[addr] == 1
+    @test buf[addr+1] == 2
+
+    @test wg!(Int32((addr - 1) * sizeof(Int))) == g!(x)
+    #                       ↑
+    #                       pass addr as zero-based pointer
+    #                       in the wasm memory (i32).
+    @test buf[addr] == x.x
+    @test buf[addr+1] == x.y
 end
 
 include("./pow.jl")

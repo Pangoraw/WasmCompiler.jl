@@ -384,7 +384,11 @@ function wwrite(io::IO, wmod::WModule)
         sio = IOBuffer()
         wwrite(sio, UInt32(length(wmod.mems)))
         for mem in wmod.mems
-            wwrite(sio, mem.type.min, mem.type.max)
+            if mem.type.max == typemax(mem.type.max)
+                wwrite(sio, 0x00, mem.type.min)
+            else
+                wwrite(sio, 0x01, mem.type.min, mem.type.max)
+            end
         end
         buf = take!(sio)
         n += wwrite(io, 0x05, buf)
