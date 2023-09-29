@@ -94,8 +94,9 @@ const jl_exception_tag = 1
 "How to handle mutable types and allocations"
 @enum CompilationMode GCProposal Malloc
 
-struct CodegenContext
+mutable struct CodegenContext
     mod::WModule
+    mem_offset::Int32
     type_dict::Dict
     func_dict::Dict
     datatype_dict::Dict
@@ -104,7 +105,14 @@ struct CodegenContext
     mode::CompilationMode
 end
 CodegenContext(module_=RuntimeModule(); debug=false, optimize=false, mode=length(module_.imports) == 2 ? Malloc : GCProposal) =
-    CodegenContext(module_, Dict(), Dict(), Dict(), optimize, debug, mode)
+    CodegenContext(module_, zero(Int32), Dict(), Dict(), Dict(), optimize, debug, mode)
+
+function emit_data!(ctx, init)
+    off = ctx.mem_offset
+    push!(ctx.mod.datas, Data(init,
+                              DataModeActive(0, Inst[i32_const(off)])))
+    ctx.mem_offset += length(init)
+end
 
 function emit_datatype!(ctx, @nospecialize(typ))
     haskey(ctx.datatype_dict, typ) && return ctx.datatype_dict[typ]
@@ -210,10 +218,24 @@ function convert_val!(inst, from, to)
         push!(inst, call(jl_box_float32), ref_cast(jl_value_t.typeidx))
     elseif from == f64 && to == jl_value_t
         push!(inst, call(jl_box_float64), ref_cast(jl_value_t.typeidx))
+    elseif from == i64 && to == i32
+        push!(inst, i32_wrap_i64())
     else
         error("cannot convert value from $from to $to")
     end
 end
+
+
+"returns IntXX of the same size"
+function int(sz)
+    sz == 1  && return Int8
+    sz == 2  && return Int16
+    sz == 4  && return Int32
+    sz == 8  && return Int64
+    sz == 16 && return Int128
+    throw("invalid int size $sz")
+end
+
 
 isnumeric(@nospecialize typ) =
     isprimitivetype(typ) && sizeof(typ) ∈ (1,2,4,8,16)
@@ -267,12 +289,13 @@ function emit_codes(ctx, ir, rt, nargs)
     end
 
     function emit_val!(expr, val)
+        T = typeof(val)
         if val isa Core.SSAValue || val isa Core.Argument
             push!(expr, local_get(getlocal!(val)))
-        elseif val isa Int32 || val isa Bool
+        elseif isprimitivetype(T) && valtype(T) == i32 && sizeof(T) <= sizeof(Int32)
+            push!(expr, i32_const(reinterpret(int(sizeof(T)), val)))
+        elseif isprimitivetype(T) && valtype(T) == i32
             push!(expr, i32_const(val))
-        elseif val isa UInt32
-            push!(expr, i32_const(reinterpret(Int32, val)))
         elseif val isa Int64
             push!(expr, i64_const(val))
         elseif val isa UInt64
@@ -282,11 +305,32 @@ function emit_codes(ctx, ir, rt, nargs)
         elseif val isa Float64
             push!(expr, f64_const(val))
         elseif val isa String
-            push!(expr, string_const(val), call(jl_string))
+            if ctx.mode == Malloc
+                off = ctx.mem_offset
+                bytes = Vector{UInt8}(val)
+                prepend!(bytes, reinterpret(UInt8,[sizeof(val)]))
+                push!(bytes, 0x00)
+                emit_data!(ctx, bytes)
+                push!(expr, i32_const(off))
+            elseif ctx.mode == GCProposal
+                push!(expr, string_const(val), call(jl_string))
+            else
+                throw(CompilationError(types, "cannot create String with mode $(ctx.mode)"))
+            end
         elseif isnothing(val)
-            nop()
+            push!(expr, nop())
         elseif val isa GlobalRef && isconst(val)
             emit_val!(expr, getproperty(val.mod, val.name))
+        elseif isprimitivetype(T) && sizeof(T) == 4
+            push!(expr, i32_const(Base.bitcast(Int32, val)))
+        elseif isstructtype(T) && isbitstype(T)
+            rval = Ref(val)
+            bytes = unsafe_wrap(Array, Ptr{UInt8}(pointer_from_objref(rval)), (sizeof(T),))
+            addr = ctx.mem_offset
+            emit_data!(ctx, copy(bytes))
+            push!(expr, i32_const(addr))
+        elseif Meta.isexpr(val, :boundscheck)
+            push!(expr, i32_const(1))
         else
             throw(CompilationError(types, "invalid value $val @ $(typeof(val))"))
         end
@@ -390,8 +434,17 @@ function emit_codes(ctx, ir, rt, nargs)
                         push!(exprs[bidx], i32_wrap_i64())
                     elseif typ in (Int32, UInt32) && argtype == i32
                         # pass
+                    elseif argtype == i32
+                        push!(exprs[bidx],
+                              i32_const(typemax(typ)),
+                              i32_and())
+                    elseif argtype == i64
+                        push!(exprs[bidx],
+                              i32_wrap_i64(),
+                              i32_const(typemax(typ)),
+                              i32_and())
                     else
-                        throw(CompilationError(types, "invalid trunc_int $inst"))
+                        throw(CompilationError(types, "invalid trunc_int $inst with arg::$argtype"))
                     end
                     push!(exprs[bidx], local_set(getlocal!(ssa)))
                     continue
@@ -400,13 +453,14 @@ function emit_codes(ctx, ir, rt, nargs)
                     arg = inst.args[3]
                     emit_val!(exprs[bidx], arg)
                     argtype = jltype(arg)
+                    irtyp = irtype(arg)
                     if typ in (Int64, UInt64)
-                        if argtype == Int32 || argtype == Bool
-                            push!(exprs[bidx], i64_extend_i32_s())
-                        elseif argtype == UInt32
+                        if argtype == UInt32
                             push!(exprs[bidx], i64_extend_i32_u())
+                        elseif irtyp == i32
+                            push!(exprs[bidx], i64_extend_i32_s())
                         else
-                            throw(CompilationError(types, "invalid zext_int $inst"))
+                            throw(CompilationError(types, "invalid zext_int $inst with arg::$argtype"))
                         end
                     elseif typ in (Int32, UInt32)
                         # pass
@@ -535,14 +589,60 @@ function emit_codes(ctx, ir, rt, nargs)
                 elseif f === Base.arrayref
                     idxtype = irtype(inst.args[4])
                     idxtype in (i32, i64) || throw(CompilationError(types, "invalid index type $idxtype in $inst"))
-                    emit_val!(exprs[bidx], inst.args[3]),
-                    emit_val!(exprs[bidx], inst.args[4]),
-                    push!(
-                        exprs[bidx],
-                        idxtype == i32 ? nop() : i32_wrap_i64(),
-                        array_get(5 - 1),
-                        local_set(getlocal!(ssa)),
-                    )
+
+                    if ctx.mode == Malloc
+                        arr, idx = inst.args[3:4]
+                        @assert irtype(arr) == i32
+                        arrtyp = jltype(arr)
+                        eltyp = eltype(arrtyp)
+                        emit_val!(exprs[bidx], arr) #array
+                        emit_val!(exprs[bidx], idx) #index
+                        idxtype == i64 && push!(exprs[bidx], i32_wrap_i64())
+                        push!(exprs[bidx],
+                              i32_const(sizeof(eltyp)),
+                              i32_mul(),
+                              i32_add())
+                        outtyp = jltype(ssa)
+                        if outtyp == Int32
+                            push!(exprs[bidx], i32_load(MemArg(0, 8+8*ndims(arrtyp))), local_set(getlocal!(ssa)))
+                        elseif outtyp == Int64 
+                            push!(exprs[bidx], i64_load(MemArg(0, 8+8*ndims(arrtyp))), local_set(getlocal!(ssa)))
+                        end
+                    elseif ctx.mode == GCProposal
+                        emit_val!(exprs[bidx], inst.args[3])
+                        emit_val!(exprs[bidx], inst.args[4])
+                        push!(
+                            exprs[bidx],
+                            idxtype == i32 ? nop() : i32_wrap_i64(),
+                            array_get(5 - 1),
+                            local_set(getlocal!(ssa)),
+                        )
+                    else
+                        throw(CompilationError(types, "invalid arrayref for mode $(ctx.mode)"))
+                    end
+                    continue
+                elseif f === Base.arrayset
+                    arr, idx, v = @view inst.args[begin+1:end]
+                    if ctx.mode == Malloc
+                        @assert irtype(arr) == i32
+                        arrtyp = jltype(arr)
+                        eltyp = eltype(arrtyp)
+                        emit_val!(exprs[bidx], arr)
+                        emit_val!(exprs[bidx], idx)
+                        push!(exprs[bidx], i32_add())
+                        emit_val!(exprs[bidx], v isa QuoteNode ? v.value : v)
+                        vtyp = irtype(v)
+                        push!(
+                            exprs[bidx],
+                             vtyp == i32 ?
+                                i32_store() :
+                                vtyp == i64 ?
+                                i64_store() :
+                                v128_store()
+                        )
+                    else
+                        throw(CompilationError(types, "unsupported arrayset"))
+                    end
                     continue
                 elseif f === Core.typeassert
                     continue
@@ -563,7 +663,8 @@ function emit_codes(ctx, ir, rt, nargs)
                     if ctx.mode == Malloc
                         emit_val!(exprs[bidx], op)
                         emit_val!(exprs[bidx], v)
-                        ftyp = valtype(fieldtype(typ, fieldidx))
+                        fT = fieldtype(typ, fieldidx)
+                        ftyp = isnumeric(fT) ? valtype(fT) : i32
                         push!(
                             exprs[bidx],
                             ftyp == i32 ?
@@ -611,6 +712,20 @@ function emit_codes(ctx, ir, rt, nargs)
                         )
                     end
                     continue
+                elseif f === Core.sizeof
+                    arg = last(inst.args)
+                    argtyp = jltype(arg)
+                    if argtyp == String
+                        emit_val!(exprs[bidx], arg)
+                        push!(exprs[bidx], i64_load())
+                    elseif argtyp == DataType
+                        push!(exprs[bidx], i64_const(sizeof(resolve_arg(inst, lastindex(inst.args)))))
+                    end
+                    push!(exprs[bidx], local_set(getlocal!(ssa)))
+                    continue
+                elseif f === Core.throw && ctx.mode == Malloc
+                    push!(exprs[bidx], unreachable())
+                    continue
                 end
                 for arg in inst.args[begin+1:end]
                     if arg isa GlobalRef && isconst(arg)
@@ -651,8 +766,13 @@ function emit_codes(ctx, ir, rt, nargs)
                         push!(exprs[bidx], i32_const(-1), i32_xor())
                     elseif typ == Int64 || typ == UInt64
                         push!(exprs[bidx], i64_const(-1), i64_xor())
+                    elseif typ == UInt8
+                        push!(exprs[bidx], i32_const(-1),
+                                           i32_xor(),
+                                           i32_const(0xff),
+                                           i32_and())
                     else
-                        throw(CompilationError(types, "invalid not_int"))
+                        throw(CompilationError(types, "invalid not_int Base.not_int(::$(typ))"))
                     end
                 elseif f === Base.muladd_float || f === Base.fma_float
                     if all(arg -> irtype(arg) == f32, inst.args[begin+1:end])
@@ -672,7 +792,8 @@ function emit_codes(ctx, ir, rt, nargs)
                     elseif all(arg -> irtype(arg) == f64, inst.args[begin+1:end])
                         push!(exprs[bidx], f64_eq())
                     else
-                        throw(CompilationError(types, "invalid sub_int"))
+                        args = map(jltype, inst.args[begin+1:end])
+                        throw(CompilationError(types, "invalid sub_int $args"))
                     end
                 elseif f === Base.ashr_int || f === Base.lshr_int
                     argtype = irtype(inst.args[2])
@@ -725,6 +846,32 @@ function emit_codes(ctx, ir, rt, nargs)
                     end
                 elseif f === Core.typeassert
                     continue
+                elseif f === Core.Intrinsics.arraylen
+                    @assert ctx.mode == Malloc "cannot compiler arraylen on mode $(ctx.mode)"
+                    arr = last(inst.args)
+                    @assert irtype(arr) == i32 "array is not represented by a pointer"
+                    @assert jltype(ssa) == Int64
+                    arrtyp = jltype(arr)
+                    push!(exprs[bidx], i64_load(MemArg(0,8)))
+                    for n in 2:ndims(arrtyp)
+                        emit_val!(exprs[bidx], arr)
+                        push!(exprs[bidx], i64_load(MemArg(0,8n)), i64_mul())
+                    end
+                elseif f === Base.add_ptr
+                    push!(exprs[bidx], i32_add())
+                elseif f === Base.sub_ptr
+                    push!(exprs[bidx], i32_sub())
+                elseif f === Base.pointerref
+                    push!(exprs[bidx], i64_load())
+                elseif f === Base.arraysize
+                    @assert ctx.mode == Malloc "cannot compiler arralen on mode $(ctx.mode)"
+                    arr, i = inst.args[end-1:end]
+                    @assert irtype(arr) == i32 "array is not represented by a pointer"
+                    push!(exprs[bidx], i64_const(4),
+                                       i64_add(),
+                                       i32_wrap_i64(),
+                                       i32_add(),
+                                       i64_load())
                 elseif nameof(f) == :T_load
                     push!(exprs[bidx], f32_load())
                 elseif nameof(f) == :T_store
@@ -817,14 +964,19 @@ function emit_codes(ctx, ir, rt, nargs)
             elseif isnothing(inst)
                 push!(exprs[bidx], nop())
             elseif inst isa GlobalRef
-                emit_val!(exprs[bidx], inst)
-                push!(exprs[bidx], local_set(getlocal!(ssa)))
+                try
+                    emit_val!(exprs[bidx], inst)
+                    push!(exprs[bidx], local_set(getlocal!(ssa)))
+                catch
+                end
+            elseif Meta.isexpr(inst, :boundscheck)
+                push!(exprs[bidx], i32_const(1), local_set(getlocal!(ssa)))
             elseif Meta.isexpr(inst, :new)
                 typ = resolve_arg(inst, 1)
 
                 # Malloc
                 if ctx.mode == Malloc
-                    @assert ismutabletype(typ) && isstructtype(typ) "invalid new for type $typ"
+                    @assert isstructtype(typ) "invalid new for type $typ"
                     sz = sizeof(typ)
                     loc = getlocal!(ssa)
                     push!(exprs[bidx], i32_const(sz), call(1), local_set(loc))
@@ -862,6 +1014,7 @@ function emit_codes(ctx, ir, rt, nargs)
 
                 validx = findfirst(==(bidx), tgt_inst.edges)
                 isnothing(validx) && continue
+                isassigned(tgt_inst.values, validx) || continue
                 emit_val!(exprs[bidx], tgt_inst.values[validx])
                 philoc = getlocal!(SSAValue(tgt_sidx))
                 push!(exprs[bidx], local_set(philoc))

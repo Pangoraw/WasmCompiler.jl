@@ -46,7 +46,8 @@ function _printwasm(io::IO, mod::WModule)
             _printwasm(io, data.mode.offset) 
             print(io, ") ")
         end
-        print(io, '"', String(data.init), "\")")
+        show(io, String(copy(data.init)))
+        print(io, ')')
     end
 
     !isempty(mod.datas) && println(io)
