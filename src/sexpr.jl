@@ -57,7 +57,7 @@ function sexpr!(wmod, func, expr::Vector{Inst})
 
         taken = 0
         while taken < to_take
-            isempty(out) && error("stack is empty for expr $(sprint(_printwasm, inst))")
+            isempty(out) && error("stack is empty for expr ($(sprint(_printwasm, inst; context=(:mod => wmod, :indent => 0))))")
             op = pop!(out)
             prod = produces(wmod, func, op)
             iszero(prod) && error("invalid stack order")

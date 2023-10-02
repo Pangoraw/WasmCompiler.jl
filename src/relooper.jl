@@ -1,3 +1,14 @@
+function reverse_postorder(blocks)
+    dfs = Core.Compiler.DFS(blocks)
+    postorder = dfs.to_post # bb -> order
+    rev_postorder = Vector{Int}(undef, length(blocks))
+    # post_order -> bb
+    for (i, b) in enumerate(sortperm(postorder; rev=true))
+        rev_postorder[b] = i
+    end
+    rev_postorder
+end
+
 """
     Relooper(exprs, ir)
 
@@ -29,17 +40,12 @@ Relooper(exprs, ir::Core.Compiler.IRCode) =
         exprs,
         ir,
         Core.Compiler.naive_idoms(ir.cfg.blocks, false),
-        1:length(ir.cfg.blocks) |> collect,# reverse_postorder(ir.cfg.blocks), # FIXME
+        reverse_postorder(ir.cfg.blocks),
         Int[],
     )
 
-function reverse_postorder(blocks)
-    dfs = Core.Compiler.DFS(blocks, false)
-    reverse(dfs.to_post) # is this correct?
-end
-
 function brindex(relooper::Relooper, l, i=0)
-    i == length(relooper.context) && error("failed to find block $l in context")
+    i == length(relooper.context) && error("failed to find block $l in context $(relooper.context)")
     relooper.context[end-i] == l ?
         i : brindex(relooper, l, i+1)
 end
@@ -81,7 +87,7 @@ function getsuccs(relooper, bidx)
     end
 
     if gotoifnot isa Core.GotoNode
-        gotoifnot = ir.stmts[stmts.stop - 1][:inst]::Core.GotoIfNot
+        gotoifnot = ir.stmts[block.stmts.stop - 1][:inst]::Core.GotoIfNot
     end
 
     falsedest = gotoifnot.dest
@@ -121,7 +127,7 @@ function nestwithin!(relooper::Relooper, bidx, mergenodes)
         return relooper.exprs[bidx]
     end
 
-    (y_n, ys...) = mergenodes
+    (ys..., y_n) = mergenodes
 
     push!(relooper.context, y_n)
     codeforx = Block(FuncType([], []), nestwithin!(relooper, bidx, ys))
@@ -137,7 +143,11 @@ function donode!(relooper::Relooper, bidx)
     (; cfg) = ir
     (; stmts, preds, succs) = cfg.blocks[bidx]
 
-    toplace = sort(findall(==(bidx), idoms), by=b -> relooper.order[b])
+    toplace = sort(findall(==(bidx), idoms),
+                   by=b -> relooper.order[b])
+
+    # Very verbose
+    # @debug "placing" bidx toplace mnodes = filter(b -> ismergenode(relooper, b), toplace)
 
     if isloopheader(relooper, bidx)
         push!(relooper.context, bidx)

@@ -971,6 +971,13 @@ function emit_codes(ctx, ir, rt, nargs)
                 end
             elseif Meta.isexpr(inst, :boundscheck)
                 push!(exprs[bidx], i32_const(1), local_set(getlocal!(ssa)))
+            elseif Meta.isexpr(inst, :throw_undef_if_not)
+                cond = last(inst.args)
+                emit_val!(exprs[bidx], cond)
+                @assert irtype(cond) == i32
+                push!(exprs[bidx],
+                      i32_eqz(),
+                      If(voidtype, Inst[unreachable()], Inst[]))
             elseif Meta.isexpr(inst, :new)
                 typ = resolve_arg(inst, 1)
 
@@ -1055,22 +1062,24 @@ function emit_func!(ctx, types)
     func_idx = ctx.func_dict[types] = num_func_imports + length(ctx.func_dict) + 1
 
     nargs = length(types.parameters) - 1
-    exprs, locals = try
-        emit_codes(ctx, ir, rt, nargs)
+    expr, locals = try
+        exprs, locals = emit_codes(ctx, ir, rt, nargs)
+
+        relooper = Relooper(exprs, ir)
+
+        @debug "relooping" c = sprint(Base.show_tuple_as_call, :ok, types)
+        content = reloop!(relooper)
+        expr = Inst[
+            content,
+            unreachable(), # CF will go through a ReturnNode
+        ]
+
+        expr, locals
     catch err
         err isa CompilationError && rethrow()
         # display(ir)
         throw(CompilationError(types, err))
     end
-
-    relooper = Relooper(exprs, ir)
-
-    @debug "relooping" c = sprint(Base.show_tuple_as_call, :ok, types)
-    content = reloop!(relooper)
-    expr = Inst[
-        content,
-        unreachable(), # CF will go through a ReturnNode
-    ]
 
     functype = FuncType(
         locals[begin:nargs],
