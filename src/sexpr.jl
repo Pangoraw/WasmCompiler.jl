@@ -8,6 +8,7 @@ takes(_, _, ::Union{i32_load, i64_load, f32_load, f64_load,
                     i64_load32_s, i64_load32_u,v128_load}) = 1
 takes(_, _, ::BinaryInst) = 2
 takes(_, _, ::v128cmp) = 2
+takes(_, _, ::br_if) = 2 # wrong
 function takes(wmod, _, (; tag)::throw_)
     for imp in wmod.imports
         imp isa TagImport || continue
@@ -29,7 +30,7 @@ produces(_, _, ::Union{i32_load, i64_load, f32_load, f64_load,
                        i64_load8_s, i64_load8_u, i64_load16_s, i64_load16_u,
                        i64_load32_s, i64_load32_u,v128_load}) = 1
 produces(_, _, ::Union{i32_store,i64_store,f32_store,f64_store}) = 0
-produces(_, _, inst) = 1
+produces(_, _, inst::Inst) = 1
 produces(wmod, _, c::call) = length(get_function_type(wmod, c.func).results)
 produces(_, _, block::Union{If,Loop,Block}) = length(block.fntype.results)
 
@@ -57,15 +58,15 @@ function sexpr!(wmod, func, expr::Vector{Inst})
 
         taken = 0
         while taken < to_take
-            isempty(out) && error("stack is empty for expr ($(sprint(_printwasm, inst; context=(:mod => wmod, :indent => 0))))")
+            isempty(out) && error("stack is empty for expr ($(sprint(_printwasm, inst; context=(:mod => wmod, :indent => 0)))) taken $taken/$to_take params")
             op = pop!(out)
-            prod = produces(wmod, func, op)
+            prod = produces(wmod, func, op.inst)
             iszero(prod) && error("invalid stack order")
             taken += prod
 
             pushfirst!(operands, op)
         end
-        taken == to_take || error("could not handle values on stack")
+        taken > to_take && error("could not handle values on stack")
         push!(out, InstOperands(inst, operands))
     end
 

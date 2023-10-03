@@ -176,6 +176,7 @@ const INTRINSICS = Dict(
 )
 
 function struct_idx!(ctx, @nospecialize(typ))
+    @assert ctx.mode == GCProposal
     isconcretetype(typ) || return 1
     get!(ctx.type_dict, typ) do
         @assert isconcretetype(typ) typ
@@ -325,9 +326,12 @@ function emit_codes(ctx, ir, rt, nargs)
             push!(expr, i32_const(Base.bitcast(Int32, val)))
         elseif isstructtype(T) && isbitstype(T)
             rval = Ref(val)
-            bytes = unsafe_wrap(Array, Ptr{UInt8}(pointer_from_objref(rval)), (sizeof(T),))
             addr = ctx.mem_offset
-            emit_data!(ctx, copy(bytes))
+            bytes = @GC.preserve rval let bytes
+                bytes = unsafe_wrap(Array, Ptr{UInt8}(pointer_from_objref(rval)), (sizeof(T),))
+                copy(bytes)
+            end
+            emit_data!(ctx, bytes)
             push!(expr, i32_const(addr))
         elseif Meta.isexpr(val, :boundscheck)
             push!(expr, i32_const(1))
@@ -686,11 +690,30 @@ function emit_codes(ctx, ir, rt, nargs)
                         findfirst(==(field), fieldnames(typ))
                     elseif field isa Int
                         field
+                    elseif ctx.mode == Malloc
+                        emit_val!(exprs[bidx], inst.args[2])
+                        block_list = Inst[]
+                        fieldtyp = irtype(field)
+                        for i in 1:fieldcount(typ)
+                            off = fieldoffset(typ, i)
+                            push!(block_list, i32_const(off))
+                            emit_val!(block_list, field)
+                            fieldtyp == i64 && push!(block_list, i32_wrap_i64())
+                            push!(block_list,
+                                  i32_const(i),
+                                  i32_eq(),
+                                  br_if(0))
+                        end
+                        push!(block_list, unreachable())
+                        push!(exprs[bidx], Block(FuncType([], [i32]), block_list), i32_add())
+                        load_op = irtype(ssa) == i32 ? i32_load : i64_load
+                        push!(exprs[bidx], load_op(), local_set(getlocal!(ssa)))
+                        continue
                     else
                         throw(CompilationError(types, "invalid getfield $inst"))
                     end
 
-                    emit_val!(exprs[bidx], inst.args[2]),
+                    emit_val!(exprs[bidx], inst.args[2])
                     if ctx.mode == Malloc
                         @assert irtype(inst.args[2]) == i32
                         outtyp = irtype(ssa)
@@ -723,6 +746,27 @@ function emit_codes(ctx, ir, rt, nargs)
                     end
                     push!(exprs[bidx], local_set(getlocal!(ssa)))
                     continue
+                elseif f === Core.tuple
+                    T = jltype(ssa)
+                    if ctx.mode == Malloc
+                        loc = getlocal!(ssa)
+                        push!(exprs[bidx], i32_const(sizeof(T)), call(1), local_set(loc))
+                        for (i, arg) in enumerate(inst.args[begin+1:end])
+                            argtyp = irtype(arg)
+                            store_op = argtyp == i32 ? i32_store : i64_store
+                            emit_val!(exprs[bidx], arg)
+                            push!(exprs[bidx], store_op(MemArg(0, fieldoffset(T,i))))
+                        end
+                    elseif ctx.mode == GCProposal
+                        for arg in inst.args
+                            emit_val!(exprs[bidx], arg)
+                        end
+                        push!(exprs[bidx], array_new(1))
+                        push!(exprs[bidx], local_set(getlocal!(ssa)))
+                    else
+                        throw(CompilationError(types, "invalid Core.tuple $inst"))
+                    end
+                    continue
                 elseif f === Core.throw && ctx.mode == Malloc
                     push!(exprs[bidx], unreachable())
                     continue
@@ -732,7 +776,7 @@ function emit_codes(ctx, ir, rt, nargs)
                         arg = getproperty(arg.mod, arg.name) 
                     end
                     if arg isa DataType
-                        @info "saving" arg f=inst.args[begin]
+                        @assert ctx.mode == GCProposal
                         push!(exprs[bidx], global_get(emit_datatype!(ctx, arg)))
                         continue
                     end
@@ -808,9 +852,6 @@ function emit_codes(ctx, ir, rt, nargs)
                     else
                         throw(CompilationError(types, "invalid shl_int $inst"))
                     end
-                elseif f === Core.tuple
-                    push!(exprs[bidx], array_new(1))
-                    push!(exprs[bidx], local_set(getlocal!(ssa)))
                 elseif f === Base.shl_int
                     argtype = irtype(inst.args[2])
                     if argtype == i32
@@ -877,7 +918,14 @@ function emit_codes(ctx, ir, rt, nargs)
                 elseif nameof(f) == :T_store
                     push!(exprs[bidx], f32_store())
                 else
-                    throw(CompilationError(types, "Cannot handle call to $f @ $inst"))
+                    ty = Tuple{Core.Typeof(f),map(jltype, inst.args[begin+1:end])...}
+                    haskey(ctx.func_dict, ty) || emit_func!(ctx, ty)
+                    funcidx = ctx.func_dict[ty]
+                    push!(exprs[bidx], call(funcidx))
+                    typ = jltype(ssa)
+                    typ <: Union{} && (push!(exprs[bidx], drop(), unreachable()); continue)
+                # else
+                #     throw(CompilationError(types, "Cannot handle call to $f @ $inst"))
                 end
 
                 loc = getlocal!(ssa)
@@ -949,11 +997,18 @@ function emit_codes(ctx, ir, rt, nargs)
                     continue
                 end
 
+                mi = inst.args[1]
                 for arg in inst.args[begin+2:end]
                     emit_val!(exprs[bidx], arg)
                 end
 
-                mi = inst.args[1]
+                if isdefined(mi.specTypes.parameters[1], :instance) &&
+                    mi.specTypes.parameters[1].instance === Base.isvalid
+                    line = ir.linetable[stmt[:line]]
+                    last_insts = exprs[bidx][max(end-3,begin):end]
+                    @error "call to isvalid" line mi last_insts inst
+                end
+
                 haskey(ctx.func_dict, mi.specTypes) || emit_func!(ctx, mi.specTypes)
                 funcidx = ctx.func_dict[mi.specTypes]
                 push!(exprs[bidx], call(funcidx))
@@ -961,6 +1016,9 @@ function emit_codes(ctx, ir, rt, nargs)
                 typ <: Union{} && (push!(exprs[bidx], drop(), unreachable()); continue)
                 loc = getlocal!(ssa)
                 push!(exprs[bidx], local_set(loc))
+            elseif Meta.isexpr(inst, :foreigncall)
+                f_to_call = first(inst.args)
+                @warn "unimplemented foreign call" f_to_call
             elseif isnothing(inst)
                 push!(exprs[bidx], nop())
             elseif inst isa GlobalRef
@@ -971,6 +1029,8 @@ function emit_codes(ctx, ir, rt, nargs)
                 end
             elseif Meta.isexpr(inst, :boundscheck)
                 push!(exprs[bidx], i32_const(1), local_set(getlocal!(ssa)))
+            elseif Meta.isexpr(inst, (:gc_preserve_begin, :gc_preserve_end))
+                continue
             elseif Meta.isexpr(inst, :throw_undef_if_not)
                 cond = last(inst.args)
                 emit_val!(exprs[bidx], cond)
@@ -1060,6 +1120,7 @@ function emit_func!(ctx, types)
 
     num_func_imports = count(imp -> imp isa FuncImport, ctx.mod.imports)
     func_idx = ctx.func_dict[types] = num_func_imports + length(ctx.func_dict) + 1
+    push!(ctx.mod.funcs, Func("anon", voidtype, [], []))
 
     nargs = length(types.parameters) - 1
     expr, locals = try
@@ -1128,11 +1189,11 @@ function emit_func!(ctx, types)
         end
     end
 
-    pushfirst!(ctx.mod.funcs, f)
-    if !isnothing(ctx.mod.start) &&
-        ctx.mod.start > num_func_imports
-        ctx.mod.start += 1
-    end
+    ctx.mod.funcs[func_idx - num_func_imports] = f
+    # if !isnothing(ctx.mod.start) &&
+    #     ctx.mod.start > num_func_imports
+    #     ctx.mod.start += 1
+    # end
 
     f
 end

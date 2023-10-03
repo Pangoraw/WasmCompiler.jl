@@ -330,6 +330,21 @@ function wwrite(io::IO, fntype::FuncType)
     n
 end
 
+function wwrite(io::IO, data::Data)
+    n = 0
+    if data.mode isa DataModeActive
+        mode = data.mode.memory == 0 ? UInt32(0) : UInt32(2)
+        n += wwrite(io, mode)
+        mode == 2 && (n += wwrite(io, UInt32(data.mode.memory)))
+        n += wwrite(io, data.mode.offset, 0x0b)
+    else
+        @assert data.mode isa DataModePassive
+        n += wwrite(io, UInt32(1))
+    end
+    n += wwrite(io, data.init)
+    n
+end
+
 function wwrite(io::IO, glob::Global)
     n = wwrite(io, glob.type.type, glob.type.mut ? 0x01 : 0x00)
     n += wwrite(io, glob.init)
@@ -466,7 +481,12 @@ function wwrite(io::IO, wmod::WModule)
     n += wwrite(io, buf)
 
     # 11. Data Section
-    # TODO
+    if !isempty(wmod.datas)
+        sio = IOBuffer()
+        wwrite(sio, wmod.datas)
+        buf = take!(sio)
+        n += wwrite(io, 0x0B, buf)
+    end
 
     # 0. Name Section
     sio = IOBuffer()

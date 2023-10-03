@@ -1,6 +1,19 @@
 const INDENT_S = " "
 const INDENT_INC = 2
 
+function format_data_init(io::IO, bytes::Vector{UInt8})
+    for b in bytes
+        c = Char(b)
+        r = repr(c)
+        r = r[nextind(r,begin):prevind(r,end)]
+        r = replace(r, "\\x" => "\\")
+        if startswith(r, '\\') && length(r) == 2 && last(r) in '0':'9'
+            r = '\\' * lpad(r[begin+1:end], 2, '0')
+        end
+        write(io, r)
+    end
+end
+
 function _printwasm(io::IO, mod::WModule)
     print(io, "(")
     _printkw(io, "module")
@@ -46,7 +59,10 @@ function _printwasm(io::IO, mod::WModule)
             _printwasm(io, data.mode.offset) 
             print(io, ") ")
         end
-        show(io, String(copy(data.init)))
+        # show(io, String(copy(data.init)))
+        print(io, '"')
+        format_data_init(io, data.init)
+        print(io, '"')
         print(io, ')')
     end
 

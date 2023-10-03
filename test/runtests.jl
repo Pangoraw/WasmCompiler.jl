@@ -280,4 +280,38 @@ end
     @test buf[addr+1] == x.y
 end
 
+getfield(i) = Core.getfield((1,2,3,), i, true)
+
+@testset "Dynamic getfield" begin
+    (; obj) = @code_wasm optimize=false mod=:malloc getfield(1)
+    num_imports = count(imp -> imp isa WC.FuncImport, obj.imports)
+    empty!(obj.imports) # remove malloc/free imports
+    map!(obj.exports, obj.exports) do exp # renumber func exports
+        exp isa WC.FuncExport || return exp
+        WC.FuncExport(exp.name, exp.func - num_imports)
+    end
+
+    code = WC.wasm(obj)
+
+    engine = WasmEngine()
+    store = Wasmtime.WasmtimeStore(engine)
+    module_ = Wasmtime.WasmtimeModule(engine, code)
+    instance = Wasmtime.WasmtimeInstance(store, module_)
+
+    memory = exports(instance).memory
+    buf = reinterpret(Int, memory)
+    wgetfield = exports(instance).getfield
+
+    @test buf[1] == 1
+    @test buf[2] == 2
+    @test buf[3] == 3
+
+    # @test_throws Any wgetfield(0) == 0
+    # @test_throws Any wgetfield(4) == 0
+
+    @test wgetfield(1) == 1
+    @test wgetfield(2) == 2
+    @test wgetfield(3) == 3
+end
+
 include("./pow.jl")
