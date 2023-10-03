@@ -767,6 +767,29 @@ function emit_codes(ctx, ir, rt, nargs)
                         throw(CompilationError(types, "invalid Core.tuple $inst"))
                     end
                     continue
+                elseif f === Base.add_ptr || f === Base.sub_ptr
+                    p1, p2 = inst.args[begin+1:end]
+                    emit_val!(exprs[bidx], p1)
+                    irtype(p1) == i64 && convert_val!(exprs[bidx], i64, i32)
+                    emit_val!(exprs[bidx], p2)
+                    irtype(p2) == i64 && convert_val!(exprs[bidx], i64, i32)
+                    push!(exprs[bidx], f === Base.add_ptr ? i32_add() : i32_sub())
+                    push!(exprs[bidx], i64_extend_i32_u(), local_set(getlocal!(ssa)))
+                    continue
+                elseif f === Base.pointerref
+                    p, i, sz = inst.args[begin+1:end]
+                    emit_val!(exprs[bidx], p)
+                    irtype(p) == i64 && convert_val!(exprs[bidx], i64, i32)
+                    emit_val!(exprs[bidx], i)
+                    irtype(i) == i64 && convert_val!(exprs[bidx], i64, i32)
+                    push!(exprs[bidx], i32_const(1), i32_sub())
+                    emit_val!(exprs[bidx], sz)
+                    irtype(sz) == i64 && convert_val!(exprs[bidx], i64, i32)
+                    ty = irtype(ssa)
+                    push!(exprs[bidx], i32_mul(), i32_add(),
+                          ty == i32 ? i32_load() : i64_load(),
+                          local_set(getlocal!(ssa)))
+                    continue
                 elseif f === Core.throw && ctx.mode == Malloc
                     push!(exprs[bidx], unreachable())
                     continue
@@ -898,12 +921,6 @@ function emit_codes(ctx, ir, rt, nargs)
                         emit_val!(exprs[bidx], arr)
                         push!(exprs[bidx], i64_load(MemArg(0,8n)), i64_mul())
                     end
-                elseif f === Base.add_ptr
-                    push!(exprs[bidx], i32_add())
-                elseif f === Base.sub_ptr
-                    push!(exprs[bidx], i32_sub())
-                elseif f === Base.pointerref
-                    push!(exprs[bidx], i64_load())
                 elseif f === Base.arraysize
                     @assert ctx.mode == Malloc "cannot compiler arralen on mode $(ctx.mode)"
                     arr, i = inst.args[end-1:end]
@@ -923,7 +940,7 @@ function emit_codes(ctx, ir, rt, nargs)
                     funcidx = ctx.func_dict[ty]
                     push!(exprs[bidx], call(funcidx))
                     typ = jltype(ssa)
-                    typ <: Union{} && (push!(exprs[bidx], drop(), unreachable()); continue)
+                    typ <: Union{} && (push!(exprs[bidx], dStrinerop(), unreachable()); continue)
                 # else
                 #     throw(CompilationError(types, "Cannot handle call to $f @ $inst"))
                 end
@@ -1002,13 +1019,6 @@ function emit_codes(ctx, ir, rt, nargs)
                     emit_val!(exprs[bidx], arg)
                 end
 
-                if isdefined(mi.specTypes.parameters[1], :instance) &&
-                    mi.specTypes.parameters[1].instance === Base.isvalid
-                    line = ir.linetable[stmt[:line]]
-                    last_insts = exprs[bidx][max(end-3,begin):end]
-                    @error "call to isvalid" line mi last_insts inst
-                end
-
                 haskey(ctx.func_dict, mi.specTypes) || emit_func!(ctx, mi.specTypes)
                 funcidx = ctx.func_dict[mi.specTypes]
                 push!(exprs[bidx], call(funcidx))
@@ -1025,7 +1035,10 @@ function emit_codes(ctx, ir, rt, nargs)
                     @assert ctx.mode == Malloc
                     @assert irtype(last(inst.args)) == i32
                     emit_val!(exprs[bidx], last(inst.args))
-                    push!(exprs[bidx], i32_const(4), i32_add(), local_set(getlocal!(ssa)))
+                    push!(exprs[bidx],
+                          i32_const(8), i32_add(),
+                          i64_extend_i32_u(), # Ptr{UInt8} is an i64 on the host
+                          local_set(getlocal!(ssa)))
                     continue
                 end
                 @warn "unimplemented foreign call" f_to_call

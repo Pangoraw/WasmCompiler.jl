@@ -314,4 +314,32 @@ getfield(i) = Core.getfield((1,2,3,), i, true)
     @test wgetfield(3) == 3
 end
 
+f(i) = isvalid("hello", i)
+
+@testset "isvalid(::String, ::Int)" begin
+    (; obj) = @code_wasm mod=:malloc optimize=:binaryen f(1)
+    wasm = WC.wasm(obj) |> Wasmtime.WasmByteVec
+
+    mem_base = Int32(0xff)
+    malloc_called = false
+
+    function jlmalloc(sz)
+        malloc_called = true
+        ptr = mem_base
+        mem_base += Int32(sz)
+        ptr
+    end
+
+    engine = WasmEngine()
+    store = WasmStore(engine)
+    wmodule = WasmModule(store, wasm)
+    instance = WasmInstance(store, wmodule, [Wasmtime.WasmFunc(store, jlmalloc, Int32, (Int32,))])
+
+    wf = exports(instance).f
+
+    @test only(wf(1)) == Wasmtime.WasmInt32(Int32(1))
+    @test only(wf(1000)) == Wasmtime.WasmInt32(Int32(0))
+    @test !malloc_called 
+end
+
 include("./pow.jl")

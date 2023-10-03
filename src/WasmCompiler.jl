@@ -62,6 +62,7 @@ macro code_wasm(exprs...)
                 WasmCompiler.WModule()
             WasmCompiler.emit_func!(module_, $f, types;
                                     optimize=$optimize !== false,
+                                    debug=true,
                                     mode=$(wmod) === :malloc ? $(WasmCompiler.Malloc) :
                                                                $(WasmCompiler.GCProposal))
             if applicable(nameof, $f)
