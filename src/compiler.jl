@@ -940,7 +940,7 @@ function emit_codes(ctx, ir, rt, nargs)
                     funcidx = ctx.func_dict[ty]
                     push!(exprs[bidx], call(funcidx))
                     typ = jltype(ssa)
-                    typ <: Union{} && (push!(exprs[bidx], dStrinerop(), unreachable()); continue)
+                    typ <: Union{} && (push!(exprs[bidx], drop(), unreachable()); continue)
                 # else
                 #     throw(CompilationError(types, "Cannot handle call to $f @ $inst"))
                 end
