@@ -1018,6 +1018,16 @@ function emit_codes(ctx, ir, rt, nargs)
                 push!(exprs[bidx], local_set(loc))
             elseif Meta.isexpr(inst, :foreigncall)
                 f_to_call = first(inst.args)
+                @assert f_to_call isa QuoteNode "unsupported foreigncall $inst"
+                @assert inst.args[5] isa QuoteNode && inst.args[5].value == :ccall "unsupported foreigncall of type $(inst.args[5])"
+                f_to_call = f_to_call.value
+                if f_to_call === :jl_string_ptr
+                    @assert ctx.mode == Malloc
+                    @assert irtype(last(inst.args)) == i32
+                    emit_val!(exprs[bidx], last(inst.args))
+                    push!(exprs[bidx], i32_const(4), i32_add(), local_set(getlocal!(ssa)))
+                    continue
+                end
                 @warn "unimplemented foreign call" f_to_call
             elseif isnothing(inst)
                 push!(exprs[bidx], nop())
