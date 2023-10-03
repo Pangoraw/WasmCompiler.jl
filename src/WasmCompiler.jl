@@ -21,7 +21,7 @@ Base.show(io::IO, wat::Wat) = WasmCompiler._printwasm(IOContext(io, :print_sexpr
 
 """
     @code_wasm f(args...)
-    @code_wasm [optimize=false mod=false sexpr=false] f(args...)
+    @code_wasm [optimize=false mod=false sexpr=false debug=false] f(args...)
 
 Returns the WebAssembly form of the called function.
 
@@ -32,6 +32,24 @@ julia> @code_wasm optimize=true floor(2.)
 (func $floor (param f64) (result f64)
   local.get 0
   f64.floor
+)
+
+julia> @code_wasm optimize=true sexpr=true sqrt(1f0)
+(module
+  (func $sqrt (param f32) (result f32)
+    (if
+      (f32.lt
+        (local.get 0)
+        (f32.const 0.0))
+      (then
+        (unreachable))
+      (else
+        (return
+          (f32.sqrt
+            (local.get 0)))))
+    (unreachable)
+  )
+  (export "sqrt" (func $sqrt))
 )
 ```
 """
@@ -52,6 +70,7 @@ macro code_wasm(exprs...)
     print_sexpr = get(dopts, :sexpr, false)
     optimize = get(dopts, :optimize, false)
     wmod = get(dopts, :mod, false)
+    debug = get(dopts, :debug, false)
     if wmod !== false || !(optimize isa Bool) || print_sexpr
         quote
             types = Tuple{map(Core.Typeof, $(args))...}
@@ -62,21 +81,21 @@ macro code_wasm(exprs...)
                 WasmCompiler.WModule()
             WasmCompiler.emit_func!(module_, $f, types;
                                     optimize=$optimize !== false,
-                                    debug=true,
+                                    debug=$(debug),
                                     mode=$(wmod) === :malloc ? $(WasmCompiler.Malloc) :
                                                                $(WasmCompiler.GCProposal))
             if applicable(nameof, $f)
                 WasmCompiler.export!(module_, string(nameof($f)), 1)
             end
             if $optimize === :binaryen
-                module_ = WasmCompiler.optimize(module_)
+                module_ = WasmCompiler.optimize(module_; debug=$debug)
             end
             Wat(module_, $(print_sexpr))
         end
     else
         quote
             types = Tuple{map(Core.Typeof, $(args))...}
-            func = WasmCompiler.emit_func($f, types; optimize=$optimize !== false)
+            func = WasmCompiler.emit_func($f, types; optimize=$optimize !== false, debug=$debug)
             Wat(func, $(print_sexpr))
         end
     end
