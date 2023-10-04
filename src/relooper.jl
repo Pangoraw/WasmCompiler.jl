@@ -50,9 +50,14 @@ function brindex(relooper::Relooper, l, i=0)
         i : brindex(relooper, l, i+1)
 end
 
+# N.B. A block is a merge node if it is where control flow merges.
+# That means it is entered by multiple control-flow edges, _except_
+# back edges don't count.  There must be multiple paths that enter the
+# block _without_ passing through the block itself.
 function ismergenode(relooper::Relooper, bidx)
     block = relooper.ir.cfg.blocks[bidx]
-    length(block.preds) >= 2 && all(b -> relooper.order[b] < relooper.order[bidx], block.preds)
+    # count(b -> relooper.order[b] < relooper.order[bidx], block.preds) >= 2
+    count(b -> relooper.order[b] < relooper.order[bidx], block.preds) >= 2
 end
 
 function isloopheader(relooper::Relooper, bidx)
@@ -61,13 +66,14 @@ function isloopheader(relooper::Relooper, bidx)
 end
 
 function dobranch(relooper::Relooper, source, target)
-    if !(target > source) # isbackward
+    if !(relooper.order[target] > relooper.order[source]) # isbackward
         i = brindex(relooper, target)
         br(i)
     elseif ismergenode(relooper, target) # ismergelabel
         i = brindex(relooper, target)
         br(i)
     else
+        @debug "succ" source target
         donode!(relooper, target)
     end
 end
@@ -127,6 +133,10 @@ function nestwithin!(relooper::Relooper, bidx, mergenodes)
         return relooper.exprs[bidx]
     end
 
+    # y_n has a higher reverse postorder indexing
+    # which means that it should be placed *after* other
+    # mergenodes. We therefore push it in the context before
+    # other mergenodes.
     (ys..., y_n) = mergenodes
 
     push!(relooper.context, y_n)
@@ -145,18 +155,19 @@ function donode!(relooper::Relooper, bidx)
 
     toplace = sort(findall(==(bidx), idoms),
                    by=b -> relooper.order[b])
-
+    mnodes = filter(b -> ismergenode(relooper, b), toplace)
+  
     # Very verbose
-    # @debug "placing" bidx toplace mnodes = filter(b -> ismergenode(relooper, b), toplace)
+    # @debug "placing" bidx toplace mnodes
 
     if isloopheader(relooper, bidx)
         push!(relooper.context, bidx)
-        codeforx = nestwithin!(relooper, bidx, filter(b -> ismergenode(relooper, b), toplace))
+        codeforx = nestwithin!(relooper, bidx, mnodes)
         @assert bidx == pop!(relooper.context)
         Loop(FuncType([], []), codeforx)
     else
         push!(relooper.context, -1)
-        codeforx = nestwithin!(relooper, bidx, filter(b -> ismergenode(relooper, b), toplace))
+        codeforx = nestwithin!(relooper, bidx, mnodes)
         @assert -1 == pop!(relooper.context)
         Block(FuncType([], []), codeforx)
     end

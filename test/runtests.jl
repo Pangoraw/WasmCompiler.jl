@@ -306,8 +306,8 @@ getfield(i) = Core.getfield((1,2,3,), i, true)
     @test buf[2] == 2
     @test buf[3] == 3
 
-    # @test_throws Any wgetfield(0) == 0
-    # @test_throws Any wgetfield(4) == 0
+    @test_throws ErrorException wgetfield(0) == 0
+    @test_throws ErrorException wgetfield(4) == 0
 
     @test wgetfield(1) == 1
     @test wgetfield(2) == 2

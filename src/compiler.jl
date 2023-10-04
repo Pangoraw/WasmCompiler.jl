@@ -226,6 +226,49 @@ function convert_val!(inst, from, to)
     end
 end
 
+function load_op(T)
+    if T == Int8
+        i32_load8_s
+    elseif T == UInt8
+        i32_load8_s
+    elseif T == Int16
+        i32_load16_s
+    elseif T == UInt16
+        i32_load16_u
+    elseif T == Int32 || T == UInt32
+        i32_load
+    elseif T == Int64 || T == UInt64
+        i64_load
+    elseif T == Float32
+        f32_load
+    elseif T == Float64
+        f64_load
+    else # Assume value is a pointer
+        i32_load
+    end
+end
+
+function store_op(T)
+    if T == Int8
+        i32_store8_s
+    elseif T == UInt8
+        i32_store8_s
+    elseif T == Int16
+        i32_store16_s
+    elseif T == UInt16
+        i32_store16_u
+    elseif T == Int32 || T == UInt32
+        i32_store
+    elseif T == Int64 || T == UInt64
+        i64_store
+    elseif T == Float32
+        f32_store
+    elseif T == Float64
+        f64_store
+    else # Assume value is a pointer
+        i32_store
+    end
+end
 
 "returns IntXX of the same size"
 function int(sz)
@@ -319,7 +362,8 @@ function emit_codes(ctx, ir, rt, nargs)
                 throw(CompilationError(types, "cannot create String with mode $(ctx.mode)"))
             end
         elseif isnothing(val)
-            push!(expr, nop())
+            # TODO: improve this
+            push!(expr, i32_const(0))
         elseif val isa GlobalRef && isconst(val)
             emit_val!(expr, getproperty(val.mod, val.name))
         elseif isprimitivetype(T) && sizeof(T) == 4
@@ -601,17 +645,16 @@ function emit_codes(ctx, ir, rt, nargs)
                         eltyp = eltype(arrtyp)
                         emit_val!(exprs[bidx], arr) #array
                         emit_val!(exprs[bidx], idx) #index
-                        idxtype == i64 && push!(exprs[bidx], i32_wrap_i64())
+                        idxtype == i64 && convert_val!(exprs[bidx], i64, i32)
                         push!(exprs[bidx],
                               i32_const(sizeof(eltyp)),
                               i32_mul(),
                               i32_add())
                         outtyp = jltype(ssa)
-                        if outtyp == Int32
-                            push!(exprs[bidx], i32_load(MemArg(0, 8+8*ndims(arrtyp))), local_set(getlocal!(ssa)))
-                        elseif outtyp == Int64 
-                            push!(exprs[bidx], i64_load(MemArg(0, 8+8*ndims(arrtyp))), local_set(getlocal!(ssa)))
-                        end
+                        load_inst = load_op(outtyp)
+                        push!(exprs[bidx],
+                              load_inst(MemArg(0, 8+8*ndims(arrtyp))),
+                              local_set(getlocal!(ssa)))
                     elseif ctx.mode == GCProposal
                         emit_val!(exprs[bidx], inst.args[3])
                         emit_val!(exprs[bidx], inst.args[4])
@@ -642,6 +685,10 @@ function emit_codes(ctx, ir, rt, nargs)
                                 i32_store() :
                                 vtyp == i64 ?
                                 i64_store() :
+                                vtyp == f32 ?
+                                f32_store() :
+                                vtyp == f64 ?
+                                f64_store() :
                                 v128_store()
                         )
                     else
@@ -706,8 +753,8 @@ function emit_codes(ctx, ir, rt, nargs)
                         end
                         push!(block_list, unreachable())
                         push!(exprs[bidx], Block(FuncType([], [i32]), block_list), i32_add())
-                        load_op = irtype(ssa) == i32 ? i32_load : i64_load
-                        push!(exprs[bidx], load_op(), local_set(getlocal!(ssa)))
+                        load_inst = load_op(jltype(ssa))
+                        push!(exprs[bidx], load_inst(), local_set(getlocal!(ssa)))
                         continue
                     else
                         throw(CompilationError(types, "invalid getfield $inst"))
@@ -716,13 +763,11 @@ function emit_codes(ctx, ir, rt, nargs)
                     emit_val!(exprs[bidx], inst.args[2])
                     if ctx.mode == Malloc
                         @assert irtype(inst.args[2]) == i32
-                        outtyp = irtype(ssa)
-                        @assert outtyp in (i32,i64) (irtype(ssa), typ)
+                        outtyp = jltype(ssa)
+                        load_inst = load_op(outtyp)
                         push!(
                             exprs[bidx],
-                            outtyp == i32 ?
-                                i32_load(MemArg(0,fieldoffset(typ,fieldidx))) :
-                                i64_load(MemArg(0,fieldoffset(typ,fieldidx))),
+                            load_inst(MemArg(0,fieldoffset(typ,fieldidx))),
                             local_set(getlocal!(ssa)),
                         )
                     elseif ctx.mode == GCProposal
@@ -752,10 +797,11 @@ function emit_codes(ctx, ir, rt, nargs)
                         loc = getlocal!(ssa)
                         push!(exprs[bidx], i32_const(sizeof(T)), call(1), local_set(loc))
                         for (i, arg) in enumerate(inst.args[begin+1:end])
-                            argtyp = irtype(arg)
-                            store_op = argtyp == i32 ? i32_store : i64_store
+                            argtyp = jltype(arg)
+                            store_inst = store_op(argtyp)
+                            push!(exprs[bidx], local_get(loc))
                             emit_val!(exprs[bidx], arg)
-                            push!(exprs[bidx], store_op(MemArg(0, fieldoffset(T,i))))
+                            push!(exprs[bidx], store_inst(MemArg(0, fieldoffset(T,i))))
                         end
                     elseif ctx.mode == GCProposal
                         for arg in inst.args
@@ -785,9 +831,9 @@ function emit_codes(ctx, ir, rt, nargs)
                     push!(exprs[bidx], i32_const(1), i32_sub())
                     emit_val!(exprs[bidx], sz)
                     irtype(sz) == i64 && convert_val!(exprs[bidx], i64, i32)
-                    ty = irtype(ssa)
+                    ty = jltype(ssa)
                     push!(exprs[bidx], i32_mul(), i32_add(),
-                          ty == i32 ? i32_load() : i64_load(),
+                          load_op(ty)(),
                           local_set(getlocal!(ssa)))
                     continue
                 elseif f === Core.throw && ctx.mode == Malloc
@@ -1040,8 +1086,41 @@ function emit_codes(ctx, ir, rt, nargs)
                           i64_extend_i32_u(), # Ptr{UInt8} is an i64 on the host
                           local_set(getlocal!(ssa)))
                     continue
+                elseif f_to_call === :jl_alloc_array_1d
+                    @assert ctx.mode == Malloc
+                    arrty = inst.args[end-2]
+                    @assert arrty isa DataType && arrty <: Vector
+                    len = inst.args[end-1]
+                    emit_val!(exprs[bidx], len)
+                    irtype(len) == i64 && convert_val!(exprs[bidx], i64, i32)
+                    push!(exprs[bidx],
+                          i32_const(sizeof(eltype(arrty))),
+                          i32_mul(),
+                          i32_const(8),
+                          i32_add(),
+                          call(1),
+                          local_set(getlocal!(ssa)))
+                    continue
+                elseif f_to_call == :jl_alloc_array_2d
+                    @assert ctx.mode == Malloc
+                    arrty = inst.args[end-4]
+                    @assert arrty isa DataType && arrty <: Matrix
+                    n, m = inst.args[end-3:end-2]
+                    emit_val!(exprs[bidx], n)
+                    convert_val!(exprs[bidx], irtype(n), i32)
+                    emit_val!(exprs[bidx], m)
+                    convert_val!(exprs[bidx], irtype(n), i32)
+                    push!(exprs[bidx],
+                          i32_mul(),
+                          i32_const(sizeof(eltype(arrty))),
+                          i32_mul(),
+                          i32_const(16),
+                          i32_add(),
+                          call(1),
+                          local_set(getlocal!(ssa)))
+                    continue
                 end
-                @warn "unimplemented foreign call" f_to_call
+                @warn "unimplemented foreign call" f_to_call inst
             elseif isnothing(inst)
                 push!(exprs[bidx], nop())
             elseif inst isa GlobalRef
@@ -1181,6 +1260,15 @@ function emit_func!(ctx, types)
     name = replace(name, "#" => "_")
     if startswith(name, "_")
         name = "jl" * name
+    end
+    c = 1
+    while !isnothing(findfirst(f -> f.name == name, ctx.mod.funcs))
+        if c != 1
+            suff = "_$c"
+            name = name[begin:end-length(suff)]
+        end
+        c += 1
+        name *= "_$c"
     end
     f = Func(
         name,

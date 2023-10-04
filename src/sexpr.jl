@@ -47,6 +47,7 @@ end
 
 sexpr(wmod, func, expr=func.inst) = sexpr!(wmod, func, Inst[deepcopy(inst) for inst in expr])
 function sexpr!(wmod, func, expr::Vector{Inst})
+    expr2 = copy(expr)
     out = InstOperands[]
 
     while !isempty(expr)
@@ -61,7 +62,14 @@ function sexpr!(wmod, func, expr::Vector{Inst})
             isempty(out) && error("stack is empty for expr ($(sprint(_printwasm, inst; context=(:mod => wmod, :indent => 0)))) taken $taken/$to_take params")
             op = pop!(out)
             prod = produces(wmod, func, op.inst)
-            iszero(prod) && error("invalid stack order")
+            if iszero(prod)
+                @eval Main begin
+                    ops = $expr2
+                    inst = $inst
+                    op = $(op.inst)
+                end
+                error("invalid stack order")
+            end
             taken += prod
 
             pushfirst!(operands, op)
