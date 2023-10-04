@@ -1,14 +1,3 @@
-function reverse_postorder(blocks)
-    dfs = Core.Compiler.DFS(blocks)
-    postorder = dfs.to_post # bb -> order
-    rev_postorder = Vector{Int}(undef, length(blocks))
-    # post_order -> bb
-    for (i, b) in enumerate(sortperm(postorder; rev=true))
-        rev_postorder[b] = i
-    end
-    rev_postorder
-end
-
 """
     Relooper(exprs, ir)
 
@@ -35,14 +24,26 @@ struct Relooper
     context::Vector{Int}
 end
 
-Relooper(exprs, ir::Core.Compiler.IRCode) =
+function Relooper(exprs, ir::Core.Compiler.IRCode)
+    domtree = Core.Compiler.construct_domtree(ir.cfg.blocks)
     Relooper(
         exprs,
         ir,
-        Core.Compiler.naive_idoms(ir.cfg.blocks, false),
-        reverse_postorder(ir.cfg.blocks),
+        domtree.idoms_bb,
+        reverse_postorder(domtree.dfs_tree),
         Int[],
     )
+end
+
+function reverse_postorder(dfs)
+    postorder = dfs.to_post # bb -> order
+    rev_postorder = similar(postorder)
+    # post_order -> bb
+    for (i, b) in enumerate(sortperm(postorder; rev=true))
+        rev_postorder[b] = i
+    end
+    rev_postorder
+end
 
 function brindex(relooper::Relooper, l, i=0)
     i == length(relooper.context) && error("failed to find block $l in context $(relooper.context)")
@@ -56,7 +57,6 @@ end
 # block _without_ passing through the block itself.
 function ismergenode(relooper::Relooper, bidx)
     block = relooper.ir.cfg.blocks[bidx]
-    # count(b -> relooper.order[b] < relooper.order[bidx], block.preds) >= 2
     count(b -> relooper.order[b] < relooper.order[bidx], block.preds) >= 2
 end
 
