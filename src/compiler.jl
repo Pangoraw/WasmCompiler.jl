@@ -221,6 +221,8 @@ function convert_val!(inst, from, to)
         push!(inst, call(jl_box_float64), ref_cast(jl_value_t.typeidx))
     elseif from == i64 && to == i32
         push!(inst, i32_wrap_i64())
+    elseif from == i32 && to == i64
+        push!(inst, i64_extend_i32_u()) # hmm, this seems not right
     else
         error("cannot convert value from $from to $to")
     end
@@ -644,9 +646,12 @@ function emit_codes(ctx, ir, rt, nargs)
                         arrtyp = jltype(arr)
                         eltyp = eltype(arrtyp)
                         emit_val!(exprs[bidx], arr) #array
+                        push!(exprs[bidx], i32_load(MemArg(0,8+8ndims(arrtyp)+8*(ndims(arrtyp) == 1))))
                         emit_val!(exprs[bidx], idx) #index
-                        idxtype == i64 && convert_val!(exprs[bidx], i64, i32)
+                        convert_val!(exprs[bidx], idxtype, i32)
                         push!(exprs[bidx],
+                              i32_const(1),
+                              i32_sub(),
                               i32_const(sizeof(eltyp)),
                               i32_mul(),
                               i32_add())
@@ -675,22 +680,13 @@ function emit_codes(ctx, ir, rt, nargs)
                         arrtyp = jltype(arr)
                         eltyp = eltype(arrtyp)
                         emit_val!(exprs[bidx], arr)
+                        push!(exprs[bidx], i32_load(MemArg(0,8+8ndims(arrtyp)+8*(ndims(arrtyp) == 1))))
                         emit_val!(exprs[bidx], idx)
                         push!(exprs[bidx], i32_add())
                         emit_val!(exprs[bidx], v isa QuoteNode ? v.value : v)
                         vtyp = irtype(v)
-                        push!(
-                            exprs[bidx],
-                             vtyp == i32 ?
-                                i32_store() :
-                                vtyp == i64 ?
-                                i64_store() :
-                                vtyp == f32 ?
-                                f32_store() :
-                                vtyp == f64 ?
-                                f64_store() :
-                                v128_store()
-                        )
+                        store_inst = store_op(jltype(v))
+                        push!(exprs[bidx], store_inst())
                     else
                         throw(CompilationError(types, "unsupported arrayset"))
                     end
@@ -715,12 +711,8 @@ function emit_codes(ctx, ir, rt, nargs)
                         emit_val!(exprs[bidx], op)
                         emit_val!(exprs[bidx], v)
                         fT = fieldtype(typ, fieldidx)
-                        ftyp = isnumeric(fT) ? valtype(fT) : i32
-                        push!(
-                            exprs[bidx],
-                            ftyp == i32 ?
-                                i32_store(MemArg(0,fieldoffset(typ,fieldidx))) :
-                                i64_store(MemArg(0,fieldoffset(typ,fieldidx))))
+                        store_inst = store_op(fT)
+                        push!(exprs[bidx], store_inst(MemArg(0,fieldoffset(typ,fieldidx))))
                         emit_val!(exprs[bidx], v) # setfield! returns its value
                         push!(exprs[bidx], local_set(getlocal!(ssa)))
                     else
@@ -823,16 +815,18 @@ function emit_codes(ctx, ir, rt, nargs)
                     push!(exprs[bidx], i64_extend_i32_u(), local_set(getlocal!(ssa)))
                     continue
                 elseif f === Base.pointerref
-                    p, i, sz = inst.args[begin+1:end]
+                    p, i, _ = inst.args[begin+1:end]
                     emit_val!(exprs[bidx], p)
                     irtype(p) == i64 && convert_val!(exprs[bidx], i64, i32)
                     emit_val!(exprs[bidx], i)
                     irtype(i) == i64 && convert_val!(exprs[bidx], i64, i32)
                     push!(exprs[bidx], i32_const(1), i32_sub())
-                    emit_val!(exprs[bidx], sz)
-                    irtype(sz) == i64 && convert_val!(exprs[bidx], i64, i32)
+                    sz = sizeof(eltype(jltype(p)))
                     ty = jltype(ssa)
-                    push!(exprs[bidx], i32_mul(), i32_add(),
+                    push!(exprs[bidx],
+                          i32_const(sz),
+                          i32_mul(),
+                          i32_add(),
                           load_op(ty)(),
                           local_set(getlocal!(ssa)))
                     continue
@@ -968,12 +962,12 @@ function emit_codes(ctx, ir, rt, nargs)
                         push!(exprs[bidx], i64_load(MemArg(0,8n)), i64_mul())
                     end
                 elseif f === Base.arraysize
-                    @assert ctx.mode == Malloc "cannot compiler arralen on mode $(ctx.mode)"
+                    @assert ctx.mode == Malloc "cannot compile arraysize on mode $(ctx.mode)"
                     arr, i = inst.args[end-1:end]
+                    convert_val!(exprs[bidx], irtype(i), i32)
                     @assert irtype(arr) == i32 "array is not represented by a pointer"
-                    push!(exprs[bidx], i64_const(4),
-                                       i64_add(),
-                                       i32_wrap_i64(),
+                    push!(exprs[bidx], i32_const(8),
+                                       i32_mul(),
                                        i32_add(),
                                        i64_load())
                 elseif nameof(f) == :T_load
@@ -1119,6 +1113,72 @@ function emit_codes(ctx, ir, rt, nargs)
                           call(1),
                           local_set(getlocal!(ssa)))
                     continue
+                elseif f_to_call === :jl_array_ptr
+                    @assert ctx.mode == Malloc
+                    arr = last(inst.args)
+                    arrty = jltype(arr)
+                    @assert irtype(arr) == i32
+                    emit_val!(exprs[bidx], arr)
+                    push!(exprs[bidx],
+                          i32_const(8ndims(arrty) + 8 + 8 * (ndims(arrty) == 1)),
+                          i32_add())
+                    convert_val!(exprs[bidx], i32, i64)
+                    push!(exprs[bidx], local_set(getlocal!(ssa)))
+                    continue
+                elseif f_to_call === :jl_array_grow_end
+                    @assert ctx.mode == Malloc
+                    arr = inst.args[end-2]
+                    arrty = jltype(arr)
+                    @assert irtype(arr) == i32 jltype(arr)
+
+                    push!(locals, i64)
+                    prev_capacity = length(locals)
+
+                    emit_val!(exprs[bidx], arr)
+                    push!(exprs[bidx], i64_load(MemArg(0,8))) # length
+                    emit_val!(exprs[bidx], arr)
+                    push!(exprs[bidx],
+                          i64_load(MemArg(0,16)),
+                          local_tee(prev_capacity)) # capacity
+                    realloc_list = Inst[]
+
+                    push!(locals, i32)
+                    new_ptr = length(locals)
+
+                    push!(realloc_list, local_get(prev_capacity))
+                    convert_val!(realloc_list, i64, i32)
+                    push!(realloc_list,
+                          i32_const(2 * sizeof(eltype(arrty))),
+                          i32_mul(),
+                          call(1),
+                          local_tee(new_ptr)) # dest
+
+                    emit_val!(realloc_list, arr)
+                    push!(realloc_list,
+                          i32_load(MemArg(0,24)), # src
+                          local_get(prev_capacity),
+                          i32_wrap_i64(),
+                          i32_const(sizeof(eltype(arrty))),
+                          i32_mul(), # len
+                          memory_copy())
+
+                    emit_val!(realloc_list, arr)
+                    push!(realloc_list, i32_load(MemArg(0,24)), call(2)) # free
+
+                    push!(exprs[bidx],
+                          i64_ge_u(),
+                          If(FuncType([], []), realloc_list, Inst[]))
+
+                    # Increment length
+                    emit_val!(exprs[bidx], arr)
+                    emit_val!(exprs[bidx], arr)
+                    push!(exprs[bidx],
+                          i64_load(MemArg(0,8)),
+                          i64_const(1),
+                          i64_add())
+                    push!(exprs[bidx], i64_store(MemArg(0,8)))
+
+                    continue
                 end
                 @warn "unimplemented foreign call" f_to_call inst
             elseif isnothing(inst)
@@ -1152,9 +1212,8 @@ function emit_codes(ctx, ir, rt, nargs)
                     for (arg, f) in zip(inst.args[begin+1:end], 1:fieldcount(typ))
                         push!(exprs[bidx], local_get(loc))
                         emit_val!(exprs[bidx], arg)
-                        st = irtype(arg) == i32 ?
-                            i32_store(MemArg(0,fieldoffset(typ,f))) :
-                            i64_store(MemArg(0,fieldoffset(typ,f)))
+                        store_inst = store_op(jltype(arg))
+                        st = store_inst(MemArg(0,fieldoffset(typ,f)))
                         push!(exprs[bidx], st)
                     end
                 elseif ctx.mode == GCProposal# GC

@@ -6,6 +6,7 @@ takes(_, _, ::Union{i32_load, i64_load, f32_load, f64_load,
                     i32_load8_s, i32_load8_u, i32_load16_s, i32_load16_u,
                     i64_load8_s, i64_load8_u, i64_load16_s, i64_load16_u,
                     i64_load32_s, i64_load32_u,v128_load}) = 1
+takes(_, _, ::memory_copy) = 3
 takes(_, _, ::BinaryInst) = 2
 takes(_, _, ::v128cmp) = 2
 takes(_, _, ::br_if) = 2 # wrong

@@ -8,7 +8,7 @@ Runs the module through binaryen's optimizer.
 function optimize(wmod; level=1, debug=false)
     args = String["--enable-gc", "--enable-reference-types",
                   "--enable-strings", "--enable-exception-handling",
-                  "--enable-simd"]
+                  "--enable-simd", "--enable-bulk-memory"]
     debug && push!(args, "--debug")
     io_in = IOBuffer()
     wwrite(io_in, wmod)
