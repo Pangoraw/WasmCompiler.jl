@@ -435,6 +435,8 @@ function wread(io::IO)
             # 12. Data Count section
             @assert isnothing(data_count) "multiple data count sections"
             data_count = LEB128.decode(io, UInt32)
+        else
+            throw("cannot read section $sid")
         end
 
         @assert position(io) == pos + section_length "failed to read section $sid"
