@@ -442,6 +442,14 @@ function wwrite(io::IO, wmod::WModule)
         n += wwrite(io, 0x08, buf)
     end
 
+    # 12. Data Count Section
+    if !isempty(wmod.datas)
+        sio = IOBuffer()
+        buf = take!(sio)
+        wwrite(sio, length(wmod.datas))
+        n += wwrite(io, 0x0C, buf)
+    end
+
     # 10. Code Section
     sio = IOBuffer()
     wwrite(sio, UInt32(length(wmod.funcs)))

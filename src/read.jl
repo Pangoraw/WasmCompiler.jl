@@ -197,6 +197,7 @@ function wread(io::IO)
     @assert read(io, length(WASM_VERSION)) == WASM_VERSION
 
     local fntypes = WasmType[]
+    data_count= nothing
 
     while !eof(io)
         sid = read(io, UInt8)
@@ -413,6 +414,7 @@ function wread(io::IO)
         elseif sid == 0x0B
             # 11. Data Section
             n_data = LEB128.decode(io, UInt32)
+            @assert isnothing(data_count) || data_count == n_data "malformed module (expected $data_count datas got $n_data instead)" 
             for _ in 1:n_data
                 mode = LEB128.decode(io, UInt32)
                 @assert mode in 0:2 "invalid data mode $mode"
@@ -429,6 +431,10 @@ function wread(io::IO)
                 bytes = read(io, n_bytes)
                 push!(wmod.datas, Data(bytes, mode))
             end
+        elseif sid == 0x0C
+            # 12. Data Count section
+            @assert isnothing(data_count) "multiple data count sections"
+            data_count = LEB128.decode(io, UInt32)
         end
 
         @assert position(io) == pos + section_length "failed to read section $sid"
