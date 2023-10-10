@@ -50,7 +50,7 @@ valtype(::Type{Int64}) = i64
 valtype(::Type{UInt64}) = i64
 valtype(::Type{Float32}) = f32
 valtype(::Type{Float64}) = f64
-function valtype(::Type{T}) where {T} =
+function valtype(::Type{T}) where {T}
     if !isprimitivetype(T)
         # pass
     elseif sizeof(T) <= 4
