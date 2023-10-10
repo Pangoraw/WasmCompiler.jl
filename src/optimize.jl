@@ -327,3 +327,40 @@ function sort_locals!(func)
     end
     func
 end
+
+"""
+    collapse_branches!(f::Func)
+
+Collapse if/else constructs when one branch only has a `br` instruction
+to a block with a `br_if`.
+
+```
+(if (cond)
+    (then (...))
+    (else (br 3)))
+```
+to 
+```
+(br_if 2 (cond))
+(block
+    (...))
+```
+"""
+collapse_branches!(f::Func) = (_collapse_branches!(f.inst); f)
+
+function _collapse_branches!(expr)
+    for (i, inst) in enumerate(expr)
+        if inst isa Block || inst isa Loop
+            _collapse_branches!(inst.inst)
+            continue
+        end
+
+        inst isa If || continue
+        length(inst.falseinst) == 1 || continue
+        only(inst.falseinst) isa br || continue
+
+        expr[i] = Block(inst.fntype, expr.trueinst)
+        insert!(expr, i, br_if(only(expr.falseinst).label - 1))
+    end
+    expr
+end
