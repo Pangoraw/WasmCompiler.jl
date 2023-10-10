@@ -1287,14 +1287,8 @@ function emit_func!(ctx, types)
     expr, locals = try
         exprs, locals = emit_codes(ctx, ir, rt, nargs)
 
-        relooper = Relooper(exprs, ir)
-
         @debug "relooping" c = sprint(Base.show_tuple_as_call, :ok, types)
-        content = reloop!(relooper)
-        expr = Inst[
-            content,
-            unreachable(), # CF will go through a ReturnNode
-        ]
+        expr = reloop(exprs, ir)
 
         expr, locals
     catch err

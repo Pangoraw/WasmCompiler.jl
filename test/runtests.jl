@@ -342,4 +342,44 @@ f(i) = isvalid("hello", i)
     @test !malloc_called 
 end
 
+# Irreducible control flow
+# since the loop 3 - 4 - 5
+# has multiple entry points (3 & 4).
+# 1
+# ↓\
+# 2 3
+# ↓/↑
+# 4 |
+# ↓\|
+# 6 5
+# ↓
+# 9
+function ir_cfg(cond1, cond2)
+    s = 0
+
+    cond1 && @goto loop2
+@label loop1
+
+    s += 1
+
+@label loop2
+
+    s *= 2
+
+    cond2 && @goto loop1
+
+    return s
+end
+
+@testset "Irreducible control flow" begin
+    ex = try
+        @code_wasm ir_cfg(true,false)
+    catch ex
+        ex
+    end
+    @test ex isa WC.CompilationError
+    @test ex.msg isa AssertionError
+    @test occursin("CFG is not", string(ex.msg))
+end
+
 include("./pow.jl")

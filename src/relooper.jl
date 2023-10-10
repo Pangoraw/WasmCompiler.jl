@@ -1,3 +1,5 @@
+import Core.Compiler: DomTree, dominates, IRCode
+
 """
     Relooper(exprs, ir)
 
@@ -18,18 +20,18 @@ TODOs:
 struct Relooper
     # We already have emitted the code for each block content
     exprs::Vector{Vector{Inst}}
-    ir::Core.Compiler.IRCode
-    idoms::Vector{Int}
+    ir::IRCode
+    domtree::DomTree
     order::Vector{Int}
     context::Vector{Int}
 end
 
-function Relooper(exprs, ir::Core.Compiler.IRCode)
+function Relooper(exprs, ir::IRCode)
     domtree = Core.Compiler.construct_domtree(ir.cfg.blocks)
     Relooper(
         exprs,
         ir,
-        domtree.idoms_bb,
+        domtree,
         reverse_postorder(domtree.dfs_tree),
         Int[],
     )
@@ -93,10 +95,10 @@ end
 # the edge from C to B is backward (order[C] >= order[B]).
 #
 # A
-# ↓ 
-# B ←┐
-# ↓  |
-# C -┘
+# ↓
+# B←┐
+# ↓ |
+# C-┘
 #
 function isloopheader(relooper::Relooper, bidx)
     block = relooper.ir.cfg.blocks[bidx]
@@ -196,33 +198,138 @@ function nestwithin!(relooper::Relooper, bidx, mergenodes)
 end
 
 function donode!(relooper::Relooper, bidx)
-    (; ir, idoms) = relooper
-    (; cfg) = ir
-    (; stmts, preds, succs) = cfg.blocks[bidx]
+    (; ir, domtree) = relooper
 
     # When placing a block, we also place all successors in the
     # dominator tree.
-    toplace = sort(findall(==(bidx), idoms),
-                   by=b -> relooper.order[b])
-    
+    toplace = sort(domtree.nodes[bidx].children, by=b -> relooper.order[b])
+
     # Out of the immediately dominated blocks, merge nodes have a
     # special handling since they are placed after.
-    mnodes = filter(b -> ismergenode(relooper, b), toplace)
-  
+    mergenodes = filter(b -> ismergenode(relooper, b), toplace)
+
     # Very verbose
-    # @debug "placing" bidx toplace mnodes
+    # @debug "placing" bidx toplace mergenodes
 
     if isloopheader(relooper, bidx)
+        block = ir.cfg.blocks[bidx]
+
+        # Each loop must have a single entry point, otherwise the CFG
+        # is not reducible. So all edges must either be forward or the
+        # current block must dominate the predecessor for a backward edge.
+        @assert all(b -> relooper.order[b] < relooper.order[bidx] ||
+                         dominates(relooper.domtree, bidx, b),
+                    block.preds) "CFG is not reducible"
+
         push!(relooper.context, bidx)
-        codeforx = nestwithin!(relooper, bidx, mnodes)
+        codeforx = nestwithin!(relooper, bidx, mergenodes)
         @assert bidx == pop!(relooper.context)
         Loop(FuncType([], []), codeforx)
     else
         push!(relooper.context, -1)
-        codeforx = nestwithin!(relooper, bidx, mnodes)
+        codeforx = nestwithin!(relooper, bidx, mergenodes)
         @assert -1 == pop!(relooper.context)
         Block(FuncType([], []), codeforx)
     end
 end
 
 reloop!(relooper::Relooper) = donode!(relooper, 1)
+
+"""
+    reloop(exprs::Vector{Vector{Inst}}, ir::IRCode)::Vector{Inst}
+
+Consumes the given expressions (one for each block in `ir.cfg.blocks`) and return_
+a single expression list which contains the WebAssembly structured control flow constructs
+such as `Block`, `If` and `Loop` and which uses `br` instructions instead of arbitrary goto jumps.
+"""
+function reloop(exprs, ir)
+    relooper = Relooper(exprs, ir)
+    Inst[
+        reloop!(relooper),
+        unreachable(), # CF will go through a ReturnNode
+    ]
+end
+
+# --- Irreducible CFG ---
+
+const BBNumber = Int
+
+struct SuperNode
+    head::BBNumber
+    nodes::Vector{BBNumber}
+end
+
+"""
+    SuperGraph(cfg)
+
+State needed to perform the node splitting algorithm from
+> Compilers - Principles, Techniques, and Tools \\
+> Aho et al., sec 9.7.5.
+with the implementation described in
+> Beyond Relooper, Recursive Generation of WebAssembly \\
+> ICFP 2022, Norman Ramsey
+"""
+struct SuperGraph
+    domtree::DomTree
+    cfg::Core.Compiler.CFG
+    nodes::Vector{SuperNode}
+end
+function SuperGraph(cfg::Core.Compiler.CFG)
+    n_blocks = length(cfg.blocks)
+    domtree = Core.Compiler.construct_domtree(cfg.blocks)
+    SuperGraph(domtree, cfg, [
+        SuperNode(b, BBNumber[b])
+        for b in 1:n_blocks
+    ])
+end
+
+"control-flow predecessors of the super-node U in the super-graph sg"
+predecessors(sg, U) =
+    setdiff(sg.cfg.blocks[U.head].preds, U.nodes)
+
+function merge!(sg)
+    for u in eachindex(sg.nodes)
+        for v in eachindex(sg.nodes)
+            u == v && continue
+
+            U = sg.nodes[u]
+            V = sg.nodes[v]
+
+            dominates(sg.domtree, V.head, U.head) || continue
+
+            preds = predecessors(sg, U)
+            if !isempty(preds) && preds ⊆ V.nodes
+                deleteat!(sg.nodes, u)
+                union!(V.nodes, U.nodes)
+                return true
+            end
+        end
+    end
+    return false
+end
+
+function split!(sg)
+
+    for i in eachindex(sg.nodes)
+        X = sg.nodes[i]
+
+        preds = predecessors(sg, X)
+        Ws = filter(W -> !isdisjoint(W.nodes, preds), sg.nodes)
+        isempty(Ws) && continue
+
+        # Create Xᵢ foreach Wᵢ ∈ Ws
+        # for Wᵢ in @view Ws[begin+1:end]
+        #     n_blocks = length(sg.cfg.blocks)
+        #     new_nodes = n_blocks+1:n_blocks+1+length(X.nodes)
+        #     for (x, x′) in zip(X.nodes, new_nodes)
+        #         b = sg.cfg.blocks[x]
+        #         new_b = Core.Compiler.BasicBlock(
+        #             b.stmts,
+        #             map(p -> new_nodes[p], b.preds),
+        #             map(p -> new_nodes[p], b.succs),
+        #         )
+        #     end
+        #     Xᵢ = SuperNode()
+        # end
+    end
+end
