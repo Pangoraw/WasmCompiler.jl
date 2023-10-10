@@ -1380,6 +1380,7 @@ function optimize_func!(f)
         remove_nops! |>
         merge_blocks! |>
         remove_useless_branches! |>
+        collapse_branches! |>
         merge_blocks! |>
         remove_return! |>
         leak_ifs!

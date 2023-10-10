@@ -341,7 +341,7 @@ to a block with a `br_if`.
 ```
 to 
 ```
-(br_if 2 (cond))
+(br_if 2 (i32.eqz (cond)))
 (block
     (...))
 ```
@@ -356,11 +356,22 @@ function _collapse_branches!(expr)
         end
 
         inst isa If || continue
-        length(inst.falseinst) == 1 || continue
-        only(inst.falseinst) isa br || continue
 
-        expr[i] = Block(inst.fntype, expr.trueinst)
-        insert!(expr, i, br_if(only(expr.falseinst).label - 1))
+        _collapse_branches!(inst.trueinst)
+        _collapse_branches!(inst.falseinst)
+
+        length(inst.falseinst) == 1 || continue
+        branch = only(inst.falseinst)
+        branch isa br || continue
+
+        if iszero(branch.label)
+            empty!(inst.falseinst)
+            continue
+        end
+
+        expr[i] = Block(inst.fntype, inst.trueinst)
+        insert!(expr, i, br_if(branch.label - 1))
+        insert!(expr, i, i32_eqz()) # negate condition
     end
     expr
 end
