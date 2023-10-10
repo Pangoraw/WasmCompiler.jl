@@ -45,37 +45,73 @@ function reverse_postorder(dfs)
     rev_postorder
 end
 
-function brindex(relooper::Relooper, l, i=0)
-    i == length(relooper.context) && error("failed to find block $l in context $(relooper.context)")
-    relooper.context[end-i] == l ?
-        i : brindex(relooper, l, i+1)
+function brindex(relooper::Relooper, l)
+    idx = findlast(==(l), relooper.context)
+    isnothing(idx) && error("failed to find block $l in context $(relooper.context)")
+    length(relooper.context) - idx
 end
 
 # N.B. A block is a merge node if it is where control flow merges.
 # That means it is entered by multiple control-flow edges, _except_
 # back edges don't count.  There must be multiple paths that enter the
 # block _without_ passing through the block itself.
+# Merge nodes are positioned after other dominated blocks which are not
+# merge nodes such that each ancestor in the dominator tree is able to
+# jump to a merge node.
+#
+# Consider the following CFG:
+#
+#   A
+#  / \
+# B   C
+#  \ /
+#   D
+#
+# Here D is a merge node, immediately dominated by A. It will result in the
+# following wasm control flow.
+#
+# block
+#   A
+#   if
+#     B
+#   else
+#     C
+#   end
+#   D
+# end
 function ismergenode(relooper::Relooper, bidx)
     block = relooper.ir.cfg.blocks[bidx]
     count(b -> relooper.order[b] < relooper.order[bidx], block.preds) >= 2
 end
 
+# N.B. A block is a loop header if any edge flows backward to it.
+# Self-loop also count. A loop header if represented using the `Loop`
+# Wasm construct.
 function isloopheader(relooper::Relooper, bidx)
     block = relooper.ir.cfg.blocks[bidx]
     any(b -> relooper.order[b] >= relooper.order[bidx], block.preds)
 end
 
 function dobranch(relooper::Relooper, source, target)
+    # Jumping backward means that the block is dominated by the loop header
+    # therefore the target is present in the context and the jump can be
+    # represented with a `br` instruction.
     if !(relooper.order[target] > relooper.order[source]) # isbackward
         i = brindex(relooper, target)
-        br(i)
-    elseif ismergenode(relooper, target) # ismergelabel
-        i = brindex(relooper, target)
-        br(i)
-    else
-        @debug "succ" source target
-        donode!(relooper, target)
+        return br(i)
     end
+
+    # The target is a merge node, it means that it is positioned after
+    # the source block and is present in the context to jump to with a
+    # `br` instruction.
+    if ismergenode(relooper, target) # ismergelabel
+        i = brindex(relooper, target)
+        return br(i)
+    end
+
+    # Otherwise, we can simply inline the code for the target block in-place.
+    @debug "succ" source target
+    donode!(relooper, target)
 end
 
 isreturn(relooper, bidx) = relooper.ir.stmts[relooper.ir.cfg.blocks[bidx].stmts.stop][:inst] isa Core.ReturnNode
