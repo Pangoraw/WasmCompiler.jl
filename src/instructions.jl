@@ -50,12 +50,18 @@ valtype(::Type{Int64}) = i64
 valtype(::Type{UInt64}) = i64
 valtype(::Type{Float32}) = f32
 valtype(::Type{Float64}) = f64
-valtype(::Type{T}) where {T} =
-    isprimitivetype(T) &&
-    sizeof(T) <= 4 ? i32 :
-    sizeof(T) <= 8 ? i64 :
-    sizeof(T) <= 16 ? v128 :
+function valtype(::Type{T}) where {T} =
+    if !isprimitivetype(T)
+        # pass
+    elseif sizeof(T) <= 4
+        return i32
+    elseif sizeof(T) <= 8
+        return i64
+    elseif sizeof(T) <= 16
+        return v128
+    end
     error("type $T cannot be represented in wasm")
+end
 
 abstract type WasmType end
 
