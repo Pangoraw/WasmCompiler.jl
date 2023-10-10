@@ -62,9 +62,9 @@ end
 # Consider the following CFG:
 #
 #   A
-#  / \
+#  ↙ ↘
 # B   C
-#  \ /
+#  ↘ ↙
 #   D
 #
 # Here D is a merge node, immediately dominated by A. It will result in the
@@ -87,6 +87,17 @@ end
 # N.B. A block is a loop header if any edge flows backward to it.
 # Self-loop also count. A loop header if represented using the `Loop`
 # Wasm construct.
+#
+# In the following control flow graph, B is a loop header since the
+# reverse post-order is the following [A:1, B:2, C:3] and therefore
+# the edge from C to B is backward (order[C] >= order[B]).
+#
+# A
+# ↓ 
+# B ←┐
+# ↓  |
+# C -┘
+#
 function isloopheader(relooper::Relooper, bidx)
     block = relooper.ir.cfg.blocks[bidx]
     any(b -> relooper.order[b] >= relooper.order[bidx], block.preds)
@@ -189,8 +200,13 @@ function donode!(relooper::Relooper, bidx)
     (; cfg) = ir
     (; stmts, preds, succs) = cfg.blocks[bidx]
 
+    # When placing a block, we also place all successors in the
+    # dominator tree.
     toplace = sort(findall(==(bidx), idoms),
                    by=b -> relooper.order[b])
+    
+    # Out of the immediately dominated blocks, merge nodes have a
+    # special handling since they are placed after.
     mnodes = filter(b -> ismergenode(relooper, b), toplace)
   
     # Very verbose
