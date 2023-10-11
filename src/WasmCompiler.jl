@@ -101,6 +101,9 @@ macro code_wasm(exprs...)
     end
 end
 
+wat(obj) = sprint(show, Wat(obj))
+wast(obj::WModule) = sprint(show, Wat(obj, true))
+
 const WC = @__MODULE__
 
 export @code_wasm, WC
