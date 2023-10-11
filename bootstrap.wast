@@ -22,7 +22,9 @@
 
     (rec
         (type $jl-value-t
-            (struct (field $jl-value-type (ref null $jl-datatype-t))))
+            (sub
+                (struct
+                    (field $jl-value-type (ref null $jl-datatype-t)))))
 
         (type $jl-datatype-t
             (sub $jl-value-t
@@ -67,21 +69,29 @@
 
     ;; Primitive types
 
+    (type $jl-int32-t
+        (sub $jl-value-t
+             (struct
+                    (field $jl-value-type (ref null $jl-datatype-t))
+                    (field $val i32))))
+
+    (type $jl-float32-t
+        (sub $jl-value-t
+             (struct
+                (field $jl-value-type (ref null $jl-datatype-t))
+                (field $val f32))))
+
     (type $jl-nothing-t
         (sub $jl-value-t
             (struct
-                (field $jl-value-type (ref $jl-datatype-t)))))
+                (field $jl-value-type (ref null $jl-datatype-t)))))
+
 
     (global $jl-number-type  (export "jl_number_type")  (mut (ref null $jl-datatype-t)) (ref.null $jl-datatype-t))
     (global $jl-real-type    (export "jl_real_type")    (mut (ref null $jl-datatype-t)) (ref.null $jl-datatype-t))
     (global $jl-integer-type (export "jl_integer_type") (mut (ref null $jl-datatype-t)) (ref.null $jl-datatype-t))
     (global $jl-signed-type  (export "jl_signed_type")  (mut (ref null $jl-datatype-t)) (ref.null $jl-datatype-t))
 
-    (type $jl-int32-t
-        (sub $jl-value-t
-             (struct
-                (field $jl-value-type (ref $jl-datatype-t))
-                (field $val i32))))
     (global $jl-int32-type (export "jl_int32_type") (mut (ref null $jl-datatype-t)) (ref.null $jl-datatype-t))
 
     (type $jl-int64-t
@@ -91,11 +101,6 @@
                 (field $val i64))))
     (global $jl-int64-type (export "jl_int64_type") (mut (ref null $jl-datatype-t)) (ref.null $jl-datatype-t))
 
-    (type $jl-float32-t
-        (sub $jl-value-t
-             (struct
-                (field $jl-value-type (ref $jl-datatype-t))
-                (field $val f32))))
     (global $jl-float32-type (export "jl_float32_type") (mut (ref null $jl-datatype-t)) (ref.null $jl-datatype-t))
 
     (type $jl-float64-t
@@ -110,25 +115,25 @@
             (ref.as_non_null (global.get $jl-int32-type))
             (local.get 0)))
     (func $jl-unbox-int32 (export "jl_unbox_int32") (param (ref $jl-value-t)) (result i32)
-        (struct.get $jl-int32-t $val (ref.cast $jl-int32-t (local.get 0))))
+        (struct.get $jl-int32-t $val (ref.cast (ref $jl-int32-t) (local.get 0))))
     (func $jl-box-int64 (export "jl_box_int64") (param i64) (result (ref $jl-int64-t))
         (struct.new $jl-int64-t
             (ref.as_non_null (global.get $jl-int64-type))
             (local.get 0)))
     (func $jl-unbox-int64 (export "jl_unbox_int64") (param (ref $jl-int64-t)) (result i64)
-        (struct.get $jl-int64-t $val (ref.cast $jl-int64-t (local.get 0))))
+        (struct.get $jl-int64-t $val (ref.cast (ref $jl-int64-t) (local.get 0))))
     (func $jl-box-float32 (export "jl_box_float32") (param f32) (result (ref $jl-float32-t))
         (struct.new $jl-float32-t
             (ref.as_non_null (global.get $jl-float32-type))
             (local.get 0)))
     (func $jl-unbox-float32 (export "jl_unbox_float32") (param (ref $jl-float32-t)) (result f32)
-        (struct.get $jl-float32-t $val (ref.cast $jl-float32-t (local.get 0))))
+        (struct.get $jl-float32-t $val (ref.cast (ref $jl-float32-t) (local.get 0))))
     (func $jl-box-float64 (export "jl_box_float64") (param f64) (result (ref $jl-float64-t))
         (struct.new $jl-float64-t
             (ref.as_non_null (global.get $jl-float64-type))
             (local.get 0)))
     (func $jl-unbox-float64 (export "jl_unbox_float64") (param (ref $jl-float64-t)) (result f64)
-        (struct.get $jl-float64-t $val (ref.cast $jl-float64-t (local.get 0))))
+        (struct.get $jl-float64-t $val (ref.cast (ref $jl-float64-t) (local.get 0))))
 
     (type $jl-nonnull-values-t (array (ref $jl-value-t)))
     (type $jl-tuple-t
@@ -415,7 +420,7 @@
     (func $jl-repr-type (param (ref null $jl-value-t))
         (local $pc i32) (local $type (ref $jl-datatype-t))
         (local $len i32)
-        (local.set $type (ref.cast $jl-datatype-t (local.get 0)))
+        (local.set $type (ref.cast (ref $jl-datatype-t) (local.get 0)))
         (call $log
             (struct.get $jl-string-t $str ;; ref string
                 (struct.get $jl-symbol-t $str ;; jl-string-t
@@ -451,17 +456,17 @@
                 (block $nothing
                     (block $sym
                         (block $datatype
-                            (br_if $sym (ref.test $jl-symbol-t (local.get 0)))
-                            (br_if $datatype (ref.test $jl-datatype-t (local.get 0)))
-                            (br_if $nothing (ref.test $jl-nothing-t (local.get 0)))
-                            (br_if $i32 (ref.test $jl-int32-t (local.get 0)))
+                            (br_if $sym (ref.test (ref $jl-symbol-t) (local.get 0)))
+                            (br_if $datatype (ref.test (ref $jl-datatype-t) (local.get 0)))
+                            (br_if $nothing (ref.test (ref $jl-nothing-t) (local.get 0)))
+                            (br_if $i32 (ref.test (ref $jl-int32-t) (local.get 0)))
                             (unreachable))
-                        (call $jl-repr-type (ref.cast $jl-datatype-t (local.get 0)))
+                        (call $jl-repr-type (ref.cast (ref $jl-datatype-t) (local.get 0)))
                         (return))
                     (call $log
                         (struct.get $jl-string-t $str ;; ref string
                             (struct.get $jl-symbol-t $str ;; jl-string-t
-                                (ref.cast $jl-symbol-t (local.get 0)))))
+                                (ref.cast (ref $jl-symbol-t) (local.get 0)))))
                     (return))
                 (call $log (string.const "nothing"))
                 (return))
@@ -536,13 +541,13 @@
           (if (ref.eq (local.get $ta) (global.get $jl-int32-type))
               (then
                   (return (i32.eq
-                          (call $jl-unbox-int32 (ref.cast $jl-int32-t (local.get $a)))
-                          (call $jl-unbox-int32 (ref.cast $jl-int32-t (local.get $b)))))))
+                          (call $jl-unbox-int32 (ref.cast (ref $jl-int32-t) (local.get $a)))
+                          (call $jl-unbox-int32 (ref.cast (ref $jl-int32-t) (local.get $b)))))))
           (if (ref.eq (local.get $ta) (global.get $jl-int64-type))
               (then
                   (return (i64.eq
-                      (call $jl-unbox-int64 (ref.cast $jl-int64-t (local.get $a)))
-                      (call $jl-unbox-int64 (ref.cast $jl-int64-t (local.get $b)))))))
+                      (call $jl-unbox-int64 (ref.cast (ref $jl-int64-t) (local.get $a)))
+                      (call $jl-unbox-int64 (ref.cast (ref $jl-int64-t) (local.get $b)))))))
           (i32.const 0))
 
     ;; wast equivalent of `Base.:(<:)` builtin.

@@ -28,17 +28,39 @@ const v128 = WasmVector128()
 
 abstract type WasmRef <: ValType end
 
-struct FuncRef <: WasmRef end
-struct ExternRef <: WasmRef end
+struct NoFuncRef <: WasmRef
+    null::Bool
+end
+struct NoExternRef <: WasmRef
+    null::Bool
+end
+struct NoneRef <: WasmRef
+    null::Bool
+end
+struct FuncRef <: WasmRef
+    null::Bool
+end
+struct ExternRef <: WasmRef
+    null::Bool
+end
+struct AnyRef <: WasmRef
+    null::Bool
+end
+struct EqRef <: WasmRef
+    null::Bool
+end
+struct I31Ref <: WasmRef
+    null::Bool
+end
 
 struct ArrayRef <: WasmRef
     null::Bool
-    typeidx::Index
+    typeidx::Union{Nothing,Index}
 end
 
 struct StructRef <: WasmRef
     null::Bool
-    typeidx::Index
+    typeidx::Union{Nothing,Index}
 end
 
 struct StringRef <: WasmRef end
@@ -437,6 +459,7 @@ end
 struct ref_null <: Inst
     typeidx::Index
 end
+struct ref_is_null <: Inst end
 struct ref_as_non_null <: Inst end
 struct ref_cast <: Inst
     typeidx::Index

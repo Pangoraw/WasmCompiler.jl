@@ -1,21 +1,64 @@
 const reverse_opcodes = Dict{UInt8,Any}(v => k for (k, v) in opcodes)
 
 function wread(io::IO, ::Type{ValType})
-    x = read(io, UInt8)
+    x = peek(io)
     if x == 0x7f
+        read(io, UInt8)
         return i32
     elseif x == 0x7e
+        read(io, UInt8)
         return i64
     elseif x == 0x7d
+        read(io, UInt8)
         return f32
     elseif x == 0x7c
+        read(io, UInt8)
         return f64
     elseif x == 0x7b
+        read(io, UInt8)
         return v128
-    elseif x == 0x67
+    elseif x == 0x73
+        read(io, UInt8)
+        return NoFuncRef(false)
+    elseif x == 0x72
+        read(io, UInt8)
+        return NoExternRef(false)
+    elseif x == 0x71
+        read(io, UInt8)
+        return NoneRef(false)
+    elseif x == 0x70
+        read(io, UInt8)
+        return FuncRef(false)
+    elseif x == 0x6f
+        read(io, UInt8)
+        return ExternRef(false)
+    elseif x == 0x6e
+        read(io, UInt8)
+        return AnyRef(false)
+    elseif x == 0x6d
+        read(io, UInt8)
+        return EqRef(false)
+    elseif x == 0x6c
+        read(io, UInt8)
+        return I31Ref(false)
+    elseif x == 0x6b
+        read(io, UInt8)
         return StructRef(false, 1)
+    elseif x == 0x6a
+        read(io, UInt8)
+        return ArrayRef(false, 1)
+    elseif x == 0x63
+        read(io, UInt8)
+        t = wread(io, ValType)
+        return t isa StructRef ?
+                StructRef(true, t.typeidx) :
+                typeof(t)(true)
+    elseif x == 0x64
+        read(io, UInt8)
+        return wread(io, ValType)
     else
-        error("unknown type byte $x")
+        s = LEB128.decode(io, Int32)
+        return StructRef(false, s+1)
     end
 end
 
@@ -125,6 +168,8 @@ function read_inst(io::IO)
         return f32_const(read(io, Float32))
     elseif tag == 0x44
         return f64_const(read(io, Float64))
+    elseif tag == 0xd0
+        return ref_null(wread(io, ValType))
     elseif tag == 0xfc # table/memory
         tag = LEB128.decode(io, UInt32)
         if tag == 10
@@ -187,6 +232,76 @@ function read_inst_list!(io::IO, inst)
     inst
 end
 
+function read_field_type(io::IO)
+    StructField(wread(io, ValType),
+                nothing,
+                read(io, UInt8) == 0x01)
+end
+
+function read_comptype(io::IO)
+    tag = peek(io)
+
+    if tag == 0x5e
+        read(io, UInt8)
+        ft = read_field_type(io)
+        return ArrayType(nothing, ft.mut, ft.type)
+    end
+
+    if tag == 0x5f
+        read(io, UInt8)
+        n_fields = LEB128.decode(io, UInt32)
+        @debug "struct" n_fields 
+        fields = StructField[
+            read_field_type(io)
+            for _ in 1:n_fields
+        ]
+        return StructType(nothing, nothing, fields)
+    end
+
+    @assert tag == 0x60 "invalid composite type of tag $tag"
+    return wread(io, FuncType)
+end
+
+function read_type(io::IO)
+    tag = peek(io)
+
+    if tag == 0x4e # recursive types
+        read(io, UInt8)
+        n_subtypes = LEB128.decode(io, UInt32)
+        subtypes = GCType[]
+        @debug "rec" n_subtypes
+        for _ in 1:n_subtypes
+            push!(subtypes, read_subtype(io))
+        end
+        return RecursiveZone(subtypes)
+    end
+
+    return read_subtype(io)
+end
+
+function read_subtype(io)
+    tag = peek(io)
+
+    if tag == 0x50 # sub type
+        read(io, UInt8)
+        n_types = LEB128.decode(io, UInt32)
+        types = UInt32[
+            one(UInt32) + LEB128.decode(io, UInt32)
+            for _ in 1:n_types
+        ]
+        @debug "sub" types
+        ct = read_comptype(io)
+        return StructType(nothing, get(types, 1, nothing), ct.fields)
+    end
+
+    if tag == 0x4f # sub final type
+        read(io, UInt8)
+        throw("unsupported final type")
+    end
+
+    return read_comptype(io)
+end
+
 wread(path::String) = open(wread, path)
 function wread(io::IO)
     wmod = WModule()
@@ -197,7 +312,7 @@ function wread(io::IO)
     @assert read(io, length(WASM_VERSION)) == WASM_VERSION
 
     local fntypes = WasmType[]
-    data_count= nothing
+    data_count = nothing
 
     while !eof(io)
         sid = read(io, UInt8)
@@ -250,53 +365,12 @@ function wread(io::IO)
             seek(io, pos + section_length)
         elseif sid == 0x01
             # 1. Type Section
-            n_types = LEB128.decode(io, UInt32)
+            n_types = Int(LEB128.decode(io, UInt32))
             @debug "Type section" n_types
-            for _ in 1:n_types
-                tag = peek(io)
-                if tag == 0x60
-                    push!(fntypes, wread(io, FuncType))
-                elseif tag == 0x4f
-                    opcode = LEB128.decode(io, Int64)
-                    if opcode == -Int8(0x31) # rec dt*
-                        n_types_in_rec = LEB128.decode(io, UInt32)
-                        for subtype in 1:n_types_in_rec
-                            code = LEB128.decode(io, Int64)
-                            if code == -Int8(0x21) # struct ft*
-                                n_fields = LEB128.decode(io, UInt32)
-                                fields = StructField[]
-                                @debug "struct" n_fields
-                                for _ in n_fields
-                                    code = LEB128.decode(io, Int64)
-                                    if code == -Int8(0x14) # struct
-                                        ht = LEB128.decode(io, Int64)
-                                        mut = read(io, UInt8)
-                                        @assert mut == 0x01 || mut == 0x00
-                                        mut = mut == 0x01
-                                        if ht >= 0
-                                            @debug "base type" ht mut
-                                            push!(fields, StructField(StructRef(true, ht), nothing, mut))
-                                        elseif ht == -Int8(0x19)
-                                            @debug "heap type struct" ht
-                                        else
-                                            @warn "skipping heap type" ht
-                                        end
-                                    else
-                                        @warn "invalid field" code
-                                    end
-                                end
-                            elseif code == -Int8(0x22) # array ft
-                                @debug "array"
-                            elseif code == -Int8(0x30) # sub
-                                @debug "sub"
-                            elseif code == -Int8(0x32) # sub final
-                                @debug "sub final"
-                            end
-                        end
-                    end
-                end
-            end
-            @debug "type section $(length(fntypes)) types"
+            fntypes = [read_type(io)
+                       for _ in 1:n_types]
+            @debug "type section $(length(fntypes)) types" all_types = sum(t -> t isa RecursiveZone ?
+                                                                                length(t.structs) : 1, fntypes)
         elseif sid == 0x02
             # 2. Import Section
             n_imports = LEB128.decode(io, UInt32)
@@ -323,7 +397,7 @@ function wread(io::IO)
             # 3. Func Section
             n_funcs = LEB128.decode(io, UInt32)
             for _ in 1:n_funcs
-                index = LEB128.decode(io, UInt32) + 1
+                index = LEB128.decode(io, UInt32) + 1 - 6 # nope
                 push!(
                     wmod.funcs,
                     Func(
@@ -435,11 +509,28 @@ function wread(io::IO)
             # 12. Data Count section
             @assert isnothing(data_count) "multiple data count sections"
             data_count = LEB128.decode(io, UInt32)
+        elseif sid == 0x0d
+            # 13. Tag declarations section
+            n_tags = LEB128.decode(io, UInt32)
+            for _ in 1:n_tags
+                attribute = read(io, UInt8)
+                type = LEB128.decode(io, UInt32)
+            end
+        elseif sid == 0x0e
+            # 14. String refs section
+            @assert read(io, UInt8) == 0x00
+            n_strings = LEB128.decode(io, UInt32)
+            @debug "String section" n_strings
+            for _ in 1:n_strings
+                n_bytes = LEB128.decode(io, UInt32)
+                bytes = read(io, n_bytes)
+                s = String(bytes)
+            end
         else
             throw("cannot read section $sid")
         end
 
-        @assert position(io) == pos + section_length "failed to read section $sid"
+        @assert position(io) == pos + section_length "failed to read section $sid (diff $(position(io) - (pos + section_length)))"
     end
 
     wmod

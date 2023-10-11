@@ -217,6 +217,8 @@ const opcodes = Dict{Any,UInt8}(
     i64_extend8_s => 0xC2,
     i64_extend16_s => 0xC3,
     i64_extend32_s => 0xC4,
+    ref_is_null => 0xd1,
+    ref_as_non_null => 0xd4,
 )
 
 wwrite(io::IO, ::T) where {T<:Inst} = haskey(opcodes, T) ? write(io, opcodes[T]) : error("could not emit instruction $T")
