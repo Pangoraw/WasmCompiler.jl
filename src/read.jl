@@ -397,7 +397,7 @@ function wread(io::IO)
             # 3. Func Section
             n_funcs = LEB128.decode(io, UInt32)
             for _ in 1:n_funcs
-                index = LEB128.decode(io, UInt32) + 1 - 6 # nope
+                index = LEB128.decode(io, UInt32) + 1 # - 6 # nope
                 push!(
                     wmod.funcs,
                     Func(
