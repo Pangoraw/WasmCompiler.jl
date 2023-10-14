@@ -93,6 +93,16 @@ struct FuncExport <: Export
     func::Index
 end
 
+struct GlobalExport <: Export
+    name::String
+    globalidx::Index
+end
+
+struct TagExport <: Export
+    name::String
+    tagidx::Index
+end
+
 struct Table
     type::TableType
 end
@@ -139,12 +149,14 @@ mutable struct WModule
     start::Union{Nothing,Index}
     imports::Vector{Import}
     exports::Vector{Export}
+    strings::Vector{String}
 end
-WModule() = WModule([], [], [], [], [], [], [], nothing, [], [])
+WModule() = WModule([], [], [], [], [], [], [], nothing, [], [], [])
 WModule(func::Func) = WModule(
         [], [func], [], [],
         [], [], [], nothing,
         [], [FuncExport(func.name::String, 1)],
+        [],
     )
 
 num_types(mod::WModule) = sum(mod.types) do typ

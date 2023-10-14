@@ -83,6 +83,32 @@ wwrite(io::IO, ::WasmFloat32) = write(io, 0x7D)
 wwrite(io::IO, ::WasmFloat64) = write(io, 0x7C)
 wwrite(io::IO, ::WasmVector128) = write(io, 0x7B)
 
+function write_ref_type(io::IO, nr::WasmRef)
+    types = Dict(
+        NoFuncRef => 0x73,
+        NoExternRef => 0x72,
+        NoneRef => 0x71,
+        FuncRef => 0x70,
+        ExternRef => 0x6f,
+        AnyRef => 0x6e,
+        EqRef => 0x6d,
+        I31Ref => 0x6c,
+        StringRef => 0x67,
+    )
+    wwrite(io, types[typeof(nr)])
+end
+write_ref_type(io::IO, sr::Union{ArrayRef,StructRef}) = LEB128.encode(io, Int32(sr.typeidx - one(Int32)))
+
+function wwrite(io::IO, nr::WasmRef)
+    n = 0
+    if nr.null
+        n += wwrite(io, 0x63)
+    else
+        n += wwrite(io, 0x64)
+    end
+    n += write_ref_type(io, nr)
+end
+
 const opcodes = Dict{Any,UInt8}(
     unreachable => 0x00,
     nop => 0x01,
@@ -218,6 +244,7 @@ const opcodes = Dict{Any,UInt8}(
     i64_extend16_s => 0xC3,
     i64_extend32_s => 0xC4,
     ref_is_null => 0xd1,
+    ref_eq => 0xd3,
     ref_as_non_null => 0xd4,
 )
 
@@ -281,6 +308,19 @@ wwrite(io::IO, c::call) = wwrite(io, 0x10, c.func - one(c.func))
 
 wwrite(io::IO, memarg::MemArg) = wwrite(io, memarg.align, memarg.offset)
 
+wwrite(io::IO, rn::ref_null) = wwrite(io, 0xd0) + write_ref_type(io, NoneRef(true))
+
+wwrite(io::IO, sn::struct_new) = wwrite(io, 0xfb, UInt32(0), sn.typeidx - one(Index))
+wwrite(io::IO, sn::struct_get) = wwrite(io, 0xfb, UInt32(2), sn.typeidx - one(Index), sn.fieldidx - one(Index))
+wwrite(io::IO, sn::struct_set) = wwrite(io, 0xfb, UInt32(5), sn.typeidx - one(Index), sn.fieldidx - one(Index))
+wwrite(io::IO, an::array_new) = wwrite(io, 0xfb, UInt32(6), an.typeidx - one(Index))
+wwrite(io::IO, an::array_get) = wwrite(io, 0xfb, UInt32(11), an.typeidx - one(Index))
+wwrite(io::IO, an::array_set) = wwrite(io, 0xfb, UInt32(14), an.typeidx - one(Index))
+wwrite(io::IO, ::array_len) = wwrite(io, 0xfb, UInt32(15))
+wwrite(io::IO, rn::ref_test) = wwrite(io, 0xfb, UInt32(20)) + write_ref_type(io, rn.ref)
+wwrite(io::IO, rn::ref_cast) = wwrite(io, 0xfb, UInt32(22)) + write_ref_type(io, rn.ref)
+wwrite(io::IO, sc::string_const) = wwrite(io, 0xfb, UInt32(0x82), sc.stringidx - one(Index))
+
 function write_block_type(io::IO, fntype::FuncType)
     fntype == voidtype && return write(io, 0x40)
     @assert isempty(fntype.params) "not supported"
@@ -325,6 +365,23 @@ function wwrite(io::IO, a::Vector)
     n
 end
 
+wwrite(io::IO, type::RecursiveZone) = wwrite(io, 0x4e, type.structs)
+function wwrite(io::IO, type::StructType)
+    n = 0
+    if isnothing(type.subidx)
+        n += wwrite(io, 0x50, UInt32(0))
+    else
+        n += wwrite(io, 0x50, UInt32(1), UInt32(type.subidx - 1))
+    end
+    n += wwrite(io, 0x5f, type.fields)
+end
+
+function wwrite(io::IO, sf::StructField)
+    wwrite(io, sf.type, sf.mut ? 0x01 : 0x00)
+end
+
+wwrite(io::IO, at::ArrayType) = wwrite(io, 0x5e, StructField(at.content, nothing, at.mut))
+
 function wwrite(io::IO, fntype::FuncType)
     n = write(io, 0x60)
     n += wwrite(io, fntype.params)
@@ -360,7 +417,9 @@ function wwrite(io::IO, wmod::WModule)
     n += write(io, WASM_VERSION)
 
     # 1. Type Section
-    fntypes::Vector{FuncType} = unique(map(f -> f.fntype, wmod.funcs))
+    @debug "Type section" pos = position(io)
+    fntypes = copy(wmod.types)
+    fntypes = union!(fntypes, unique(map(f -> f.fntype, wmod.funcs)))
     for imp in wmod.imports
         imp isa FuncImport || continue
         if isnothing(findfirst(==(imp.fntype), fntypes))
@@ -372,17 +431,34 @@ function wwrite(io::IO, wmod::WModule)
     buf = take!(sio)
     n += wwrite(io, 0x01, buf)
 
+    # To help resolve indices
+    fntypes = flatten_types(fntypes)
+
     # 2. Import Section
+    @debug "Import section" pos = position(io)
     if !isempty(wmod.imports)
         sio = IOBuffer()
         wwrite(sio, UInt32(length(wmod.imports)))
         for imp in wmod.imports
+            wwrite(sio, imp.module_name, imp.name)
             if imp isa FuncImport
-                wwrite(sio, imp.module_name, imp.name)
                 wwrite(sio, 0x00, UInt32(findfirst(==(imp.fntype), fntypes)) - one(UInt32))
+            elseif imp isa MemImport
+                wwrite(sio, 0x02)
+                memty = imp.mem.type
+                if memty.max == typemax(memty.max)
+                    wwrite(sio, 0x00)
+                else
+                    wwrite(sio, 0x01)
+                end
+                wwrite(sio, memty.min)
+                memty.max != typemax(memty.max) && wwrite(sio, memty.max)
             elseif imp isa GlobalImport
-                wwrite(sio, imp.module_name, imp.name)
                 wwrite(sio, 0x03, imp.type.type, imp.type.mut ? 0x01 : 0x00)
+            elseif imp isa TagImport
+                wwrite(sio, 0x04, 0x00, UInt32(findfirst(==(imp.fntype), fntypes)) - one(UInt32))
+            else
+                error("cannot write import $(imp)")
             end
         end
         buf = take!(sio)
@@ -390,6 +466,7 @@ function wwrite(io::IO, wmod::WModule)
     end
 
     # 3. Func Section
+    @debug "Func section" pos = position(io)
     fntype_indices = map(f -> UInt32(findfirst(==(f.fntype), fntypes)) - one(UInt32), wmod.funcs)
     sio = IOBuffer()
     wwrite(sio, fntype_indices)
@@ -397,6 +474,7 @@ function wwrite(io::IO, wmod::WModule)
     n += wwrite(io, 0x03, buf)
 
     # 5. Memory Section
+    @debug "Memory section" pos = position(io)
     if !isempty(wmod.mems)
         sio = IOBuffer()
         wwrite(sio, UInt32(length(wmod.mems)))
@@ -413,10 +491,24 @@ function wwrite(io::IO, wmod::WModule)
 
     # 6. Global Section
     if !isempty(wmod.globals)
+        @debug "Global section" pos = UInt32(position(io))
         sio = IOBuffer()
         wwrite(sio, wmod.globals)
         buf = take!(sio)
         n += wwrite(io, 0x06, buf)
+    end
+
+    # 14. String section
+    if !isempty(wmod.strings)
+        sio = IOBuffer()
+        wwrite(sio, 0x00)
+        LEB128.encode(sio, UInt32(length(wmod.strings)))
+        for s in wmod.strings
+            wwrite(sio, UInt32(sizeof(s)))
+            write(sio, Vector{UInt8}(s))
+        end
+        buf = take!(sio)
+        n += wwrite(io, 0x0e, buf)
     end
 
     # 7. Export Section
@@ -428,6 +520,10 @@ function wwrite(io::IO, wmod::WModule)
                 wwrite(sio, exp.name, 0x00, exp.func - one(exp.func))
             elseif exp isa MemExport
                 wwrite(sio, exp.name, 0x02, exp.mem - one(exp.mem))
+            elseif exp isa GlobalExport
+                wwrite(sio, exp.name, 0x03, exp.globalidx - one(exp.globalidx))
+            elseif exp isa TagExport
+                wwrite(sio, exp.name, 0x04, exp.tagidx - one(exp.tagidx))
             else
                 error("unsupported export $exp")
             end
@@ -510,13 +606,24 @@ function wwrite(io::IO, wmod::WModule)
     n_imported = count(imp -> imp isa FuncImport, wmod.imports)
     wwrite(ssio, UInt32(length(named_functions)))
     for (i, f) in named_functions
-        wwrite(ssio, Index(n_imported + i - 1), UInt32(length(f.name)))
+        wwrite(ssio, Index(n_imported + i - 1), UInt32(sizeof(f.name)))
         write(ssio, f.name)
     end
     buf = take!(ssio)
     wwrite(sio, 0x01, buf)
     # 0.2 Locals Name
     # ...
+    # 0.4 Type names
+    ssio = IOBuffer()
+    named_types = filter(((_,ty),) -> ty isa StructType && !isnothing(ty.name), collect(enumerate(fntypes)))
+    wwrite(ssio, UInt32(length(named_types)))
+    for (i, ty) in named_types
+        wwrite(ssio, Index(i - 1), UInt32(sizeof(ty.name)))
+        write(ssio, ty.name)
+    end
+    buf = take!(ssio)
+    wwrite(sio, 0x04, buf)
+
     buf = take!(sio)
     n += wwrite(io, 0x00, buf)
 

@@ -24,7 +24,7 @@ RuntimeModule() =
                 ]),
                 StructType("jl-string-t", 1, [ # index 4
                     StructField(StructRef(true, 2), "jl-value-type", false),
-                    StructField(StringRef(), "str", false),
+                    StructField(StringRef(false), "str", false),
                 ]),
                 ArrayType("jl-values-t", true, jl_value_t), # index 5
                 StructType("jl-simplevector-t", 1, [ # index 6
@@ -41,8 +41,8 @@ RuntimeModule() =
       [Func("jl_init", FuncType([], []), [], [])],
       [], [], [], [], [], jl_init,
       [
-          FuncImport("bootstrap", "jl_symbol", "jl-symbol", FuncType([StringRef()], [jl_value_t])),
-          FuncImport("bootstrap", "jl_string", "jl-string", FuncType([StringRef()], [jl_value_t])),
+          FuncImport("bootstrap", "jl_symbol", "jl-symbol", FuncType([StringRef(false)], [jl_value_t])),
+          FuncImport("bootstrap", "jl_string", "jl-string", FuncType([StringRef(false)], [jl_value_t])),
           FuncImport("bootstrap", "jl_new_datatype", "jl-new-datatype", FuncType([jl_symbol_t, i32, i32], [jl_datatype_t])),
           FuncImport("bootstrap", "jl_isa", "jl-isa", FuncType([jl_value_t, jl_datatype_t], [i32])),
           FuncImport("bootstrap", "jl_box_int32", "jl-box-int32", FuncType([i32], [jl_value_t])),
@@ -55,14 +55,14 @@ RuntimeModule() =
           FuncImport("bootstrap", "jl_unbox_float64", "jl-unbox-float64", FuncType([jl_value_t], [f64])),
           GlobalImport("bootstrap", "jl_exception", "jl-exception", GlobalType(true, jl_value_t)),
           TagImport("bootstrap", "jl_exception_tag", "jl-exception-tag", voidtype),
-      ], [],
+      ], [], [],
   )
 
 MallocModule() =
     WModule([], [], [], [Mem(MemoryType(1,32))], [], [], [], nothing, [
         FuncImport("env", "malloc", "malloc", FuncType([i32], [i32])),
         FuncImport("env", "free", "free", FuncType([i32], [])),
-    ], [MemExport("memory", 1)])
+    ], [MemExport("memory", 1)], [])
 
 # Useful indices in RuntimeModule
 
@@ -114,18 +114,27 @@ function emit_data!(ctx, init)
     ctx.mem_offset += length(init)
 end
 
+function emit_string!(ctx, s)
+    push!(ctx.mod.strings, s)
+    return string_const(length(ctx.mod.strings))
+end
+
 function emit_datatype!(ctx, @nospecialize(typ))
     haskey(ctx.datatype_dict, typ) && return ctx.datatype_dict[typ]
-    push!(ctx.mod.globals, Global(string(nameof(typ), "-type"), GlobalType(true, StructRef(true, 2)), [ref_null(2)]))
+    push!(ctx.mod.globals, Global(string(nameof(typ), "-type"),
+                           GlobalType(true, StructRef(true, 2)),
+                           [ref_null(StructRef(true,2))]))
     init = ctx.mod.funcs[1]
     global_idx = count(imp -> imp isa GlobalImport, ctx.mod.imports) + length(ctx.mod.globals)
     push!(
         init.inst,
-        string_const(string(nameof(typ))),
+        emit_string!(ctx, string(nameof(typ))),
         call(jl_symbol),
+        ref_cast(jl_symbol_t),
         i32_const(typ.hash),
         i32_const(typ.flags),
         call(jl_new_datatype),
+        ref_cast(StructRef(true,2)),
         global_set(global_idx),
     )
     ctx.datatype_dict[typ] = global_idx
@@ -175,6 +184,9 @@ const INTRINSICS = Dict(
     Base.rint_llvm => Intrinsic(false, f32_nearest(), f64_nearest()),
 )
 
+normalize_fname(fname::Int) = "f$fname"
+normalize_fname(fname::Symbol) = string(fname)
+
 function struct_idx!(ctx, @nospecialize(typ))
     @assert ctx.mode == GCProposal
     isconcretetype(typ) || return 1
@@ -182,8 +194,8 @@ function struct_idx!(ctx, @nospecialize(typ))
         @assert isconcretetype(typ) typ
         mut = ismutabletype(typ)
         push!(ctx.mod.types, StructType(string(nameof(typ)), 1,
-          append!([StructField(StructRef(false, 2), "jl-value-type", false)], [
-            StructField(isnumeric(FT) ? valtype(FT) : jl_value_t, string(FN), mut)
+          append!([StructField(StructRef(true, 2), "jl-value-type", false)], [
+            StructField(isnumeric(FT) ? valtype(FT) : jl_value_t, normalize_fname(FN), mut)
             for (FT, FN) in zip(fieldtypes(typ), fieldnames(typ))
         ])))
         emit_datatype!(ctx, typ)
@@ -296,7 +308,7 @@ function emit_codes(ctx, ir, rt, nargs)
     locals = ValType[
         isnumeric(argtype) ?
             valtype(argtype) :
-            ctx.mod == GCProposal ?
+            ctx.mode == GCProposal ?
               StructRef(false, struct_idx!(ctx, argtype)) : i32
         for argtype in map(widenconst, @view ir.argtypes[begin+1:begin+nargs])
     ]
@@ -766,7 +778,7 @@ function emit_codes(ctx, ir, rt, nargs)
                         structidx = struct_idx!(ctx, typ)
                         push!(
                             exprs[bidx],
-                            ref_cast(structidx),
+                            ref_cast(StructRef(false, structidx)),
                             struct_get(structidx, fieldidx + 1 #= skip jl-value-type =#),
                             local_set(getlocal!(ssa)),
                         )
@@ -1280,7 +1292,7 @@ function emit_func!(ctx, types)
     ir, rt = ircodes |> only
 
     num_func_imports = count(imp -> imp isa FuncImport, ctx.mod.imports)
-    func_idx = ctx.func_dict[types] = num_func_imports + length(ctx.func_dict) + 1
+    func_idx = ctx.func_dict[types] = num_func_imports + length(ctx.mod.funcs) + 1
     push!(ctx.mod.funcs, Func("anon", voidtype, [], []))
 
     nargs = length(types.parameters) - 1

@@ -32,8 +32,17 @@ function _printwasm(io::IO, mod::WModule)
                 _printwasm(ctx, struct_) 
             end
             println(io, INDENT_S^indent, ")")
+        elseif type isa FuncType
+            ctx = IOContext(io, :indent => indent, :mod => mod)
+            print(io, INDENT_S^indent, '(')
+            _printkw(ctx, "type")
+            if !isempty(type.results) || !isempty(type.params)
+                print(io, ' ')
+            end
+            _printwasm(io, type)
+            print(io, ')')
         else
-            error("don't know how to export $type")
+            error("don't know how to print $type")
         end
     end
 
@@ -154,6 +163,7 @@ function _printwasm(io::IO, mod::WModule)
 
     !isempty(mod.imports) && println(io)
 
+    ctx = IOContext(io, :mod => mod)
     for exp in mod.exports
         print(io, INDENT_S^indent, "(")
         _printkw(io, "export")
@@ -168,6 +178,17 @@ function _printwasm(io::IO, mod::WModule)
             print(io, "\"$(exp.name)\" ", "(")
             _printkw(io, "memory")
             print(io, ' ', exp.mem - 1)
+            print(io, ')')
+        elseif exp isa GlobalExport
+            print(io, "\"$(exp.name)\" ", "(")
+            _printkw(io, "global")
+            print(io, ' ')
+            print_globalidx(ctx, exp.globalidx)
+            print(io, ')')
+        elseif exp isa TagExport
+            print(io, "\"$(exp.name)\" ", "(")
+            _printkw(io, "tag")
+            print(io, ' ', exp.tagidx - 1)
             print(io, ')')
         else
             error("cannot handle export $exp")
@@ -269,14 +290,15 @@ function _printwasm(io::IO, structtype::StructType)
     println(io)
     indent += INDENT_INC
 
+    print(io, INDENT_S^indent, "(")
+    _printkw(io, "sub")
+    print(io, ' ')
+
     if !isnothing(structtype.subidx)
-        print(io, INDENT_S^indent, "(")
-        _printkw(io, "sub")
-        print(io, ' ')
         print_typeidx(io, structtype.subidx)
-        indent += INDENT_INC
-        println(io)
     end
+    indent += INDENT_INC
+    println(io)
 
     print(io, INDENT_S^indent, "("); _printkw(io, "struct")
     indent += INDENT_INC
@@ -291,9 +313,7 @@ function _printwasm(io::IO, structtype::StructType)
         print(io, ")")
     end
 
-    !isnothing(structtype.subidx) && print(io, ')')
-
-    print(io, "))")
+    print(io, ")))")
     println(io)
 end
 
@@ -327,8 +347,10 @@ function _printwasm(io::IO, fntype::FuncType)
           print(io, ")")
         end
 
-        if length(fntype.results) > 0
-          print(io, " ("); _printkw(io, "result")
+        if !isempty(fntype.results)
+          isempty(fntype.params) || print(io, ' ');
+          print(io, '(')
+          _printkw(io, "result")
           for result in fntype.results
               print(io, " ")
               _printwasm(io, result)
@@ -389,6 +411,31 @@ function print_tagidx(io::IO, idx)
     print_sigil(io, name)
 end
 
+function print_reftype_type(io::IO, ty::WasmRef)
+    if ty isa NoneRef
+        _printkw(io, "none")
+    elseif ty isa FuncRef
+        _printkw(io, "func")
+    elseif ty isa StructRef || ty isa ArrayRef
+        print_typeidx(io, ty.typeidx)
+    elseif ty isa StringRef
+        _printkw(io, "string")
+    else
+        error("unsupported display for ref $ty")
+    end
+end
+
+function print_reftype(io::IO, ty::WasmRef)
+    print(io, '(')
+    _printkw(io, "ref") 
+    print(io, ' ')
+    ty.null && (_printkw(io, "null"); print(io, ' '))
+
+    print_reftype_type(io, ty)
+
+    print(io, ')')
+end
+
 function print_globalidx(io::IO, idx)
     wmod = get(io, :mod, nothing)
     if isnothing(wmod)
@@ -422,7 +469,17 @@ _printwasm(io::IO, g::global_set) = (_printinst(io, "global.set"); print(io, ' '
 _printwasm(io::IO, ::return_) = _printinst(io, "return")
 _printwasm(io::IO, t::throw_) = (_printinst(io, "throw"); print(io, ' '); print_tagidx(io, t.tag))
 _printwasm(io::IO, rt::rethrow_) = (_printinst(io, "rethrow"); print(io, " ", rt.label))
-_printwasm(io::IO, s::string_const) = (_printinst(io, "string.const"); print(io, " \"", s.contents, "\""))
+function _printwasm(io::IO, s::string_const)
+    _printinst(io, "string.const");
+    sidx = s.stringidx
+    mod = get(io, :mod, nothing)
+    print(io, ' ')
+    if mod == nothing
+        print(io, sidx-1)
+    else
+      print(io, "\"", mod.strings[sidx], "\"")
+    end
+end
 _printwasm(io::IO, c::call) = (_printinst(io, "call"); print(io, ' '); print_funcidx(io, c.func))
 
 _printwasm(io::IO, ls::local_set) = (_printinst(io, "local.set"), print(io, ' ', ls.n - 1))
@@ -440,7 +497,11 @@ _printwasm(io::IO, b::v128bitmask) = _printinst(io, string(b.lane, "x", Lanes.co
 _printwasm(io::IO, b::v128bin) = _printinst(io, string(b.lane, "x", Lanes.count(b.lane), b.op))
 _printwasm(io::IO, b::v128all_true) = _printinst(io, string(b.lane, "x", Lanes.count(b.lane), ".all_true"))
 
-_printwasm(io::IO, r::Union{ref_cast,ref_null}) = (_printinst(io, replace(string(nameof(typeof(r))), "_" => ".")); print(io, ' '); print_typeidx(io, r.typeidx))
+_printwasm(io::IO, r::ref_null) = 
+    (_printinst(io, "ref.null"); print(io, ' '); print_reftype_type(io, r.ref))
+
+_printwasm(io::IO, r::Union{ref_cast,ref_test}) =
+    (_printinst(io, replace(string(nameof(typeof(r))), "_" => ".")); print(io, ' '); print_reftype(io, r.ref))
 _printwasm(io::IO, sn::struct_new) = (_printinst(io, "struct.new"); print(io, ' '); print_typeidx(io, sn.typeidx))
 function _printwasm(io::IO, sg::struct_get)
     _printinst(io, "struct.get")

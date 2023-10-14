@@ -1,5 +1,35 @@
 const reverse_opcodes = Dict{UInt8,Any}(v => k for (k, v) in opcodes)
 
+function flatten_types(types)
+    Iterators.flatten(map(t -> t isa RecursiveZone ? t.structs : (t,), types)) |> collect
+end
+
+function resolve_type(types, idx)
+    all_types = flatten_types(types)
+    all_types[idx]
+end
+
+function set_typename!(types, idx, name)
+    s = 0
+
+    while s < idx 
+        s += 1
+        ty = types[s]
+        if ty isa RecursiveZone && s + length(ty.structs) >= idx
+            return set_typename!(ty.structs, idx - s, name)
+        elseif ty isa RecursiveZone
+            idx -= length(ty.structs)
+        end
+    end
+
+    ty = types[s]
+    if ty isa StructType
+        types[s] = StructType(name, ty.subidx, ty.fields)
+    end
+
+    return
+end
+
 function wread(io::IO, ::Type{ValType})
     x = peek(io)
     if x == 0x7f
@@ -47,6 +77,9 @@ function wread(io::IO, ::Type{ValType})
     elseif x == 0x6a
         read(io, UInt8)
         return ArrayRef(false, 1)
+    elseif x == 0x67
+        read(io, UInt8)
+        return StringRef(false)
     elseif x == 0x63
         read(io, UInt8)
         t = wread(io, ValType)
@@ -170,6 +203,37 @@ function read_inst(io::IO)
         return f64_const(read(io, Float64))
     elseif tag == 0xd0
         return ref_null(wread(io, ValType))
+    elseif tag == 0xd3
+        return ref_eq()
+    elseif tag == 0xfb # structs/array
+        tag = LEB128.decode(io, UInt32)
+        if tag == 0
+            return struct_new(LEB128.decode(io, UInt32) + one(Index))
+        elseif tag == 2
+            return struct_get(LEB128.decode(io, UInt32) + one(Index),
+                              LEB128.decode(io, UInt32) + one(Index))
+        elseif tag == 5
+            return struct_set(LEB128.decode(io, UInt32) + one(Index),
+                              LEB128.decode(io, UInt32) + one(Index))
+        elseif tag == 6
+            return array_new(LEB128.decode(io, UInt32) + one(Index))
+        elseif tag == 11
+            return array_get(LEB128.decode(io, UInt32) + one(Index))
+        elseif tag == 14
+            return array_set(LEB128.decode(io, UInt32) + one(Index))
+        elseif tag == 15
+            return array_len()
+        elseif tag == 20
+            ty = wread(io, ValType)
+            return ref_test(ty)
+        elseif tag == 22
+            ty = wread(io, ValType)
+            return ref_cast(ty)
+        elseif tag == 0x82
+            return string_const(LEB128.decode(io, UInt32) + one(Index))
+        else
+            error("invalid instruction code table 0xfb $tag")
+        end
     elseif tag == 0xfc # table/memory
         tag = LEB128.decode(io, UInt32)
         if tag == 10
@@ -354,6 +418,14 @@ function wread(io::IO)
                         end
                     end
                     @assert position(io) == ss_pos + ss_length
+                elseif subsection_id == 0x04
+                    n_named_types = LEB128.decode(io, UInt32)
+                    for _ in 1:n_named_types
+                        type_idx = LEB128.decode(io, UInt32) + 1
+                        name_length = LEB128.decode(io, UInt32)
+                        name = String(read(io, name_length))
+                        set_typename!(fntypes, type_idx, name)
+                    end
                 else
                     @debug "skipping name subsection" subsection_id
                     seek(io, ss_pos + ss_length)
@@ -367,42 +439,60 @@ function wread(io::IO)
             # 1. Type Section
             n_types = Int(LEB128.decode(io, UInt32))
             @debug "Type section" n_types
-            fntypes = [read_type(io)
-                       for _ in 1:n_types]
+            all_types = WasmType[read_type(io)
+                                 for _ in 1:n_types]
             @debug "type section $(length(fntypes)) types" all_types = sum(t -> t isa RecursiveZone ?
-                                                                                length(t.structs) : 1, fntypes)
+                                                                           length(t.structs) : 1, all_types)
+            fntypes = wmod.types = all_types
         elseif sid == 0x02
             # 2. Import Section
             n_imports = LEB128.decode(io, UInt32)
+            @debug "imports" n_imports pos = UInt(position(io))
             for _ in 1:n_imports
                 mod_length = LEB128.decode(io, UInt32)
                 mod = String(read(io, mod_length))
                 name_length = LEB128.decode(io, UInt32)
                 name = String(read(io, name_length))
-                importdesc = read(io, UInt8)
-                if importdesc == 0x00
+                tag = read(io, UInt8)
+                if tag == 0x00
                     typeidx = LEB128.decode(io, UInt32)
-                    push!(wmod.imports, FuncImport(mod, name,
-                                                   nothing, fntypes[typeidx+1]))
-                elseif importdesc == 0x02
+                    fntype = resolve_type(fntypes, typeidx+1)
+                    push!(wmod.imports, FuncImport(mod, name, nothing, fntype))
+                elseif tag == 0x02
                     lim = read(io, UInt8)
+                    @assert lim == 0x00 || lim == 0x01 "invalid memory type"
                     memtype = MemoryType(
                         LEB128.decode(io, UInt32),
                         lim == 0x00 ? typemax(UInt32) : LEB128.decode(io, UInt32)
                     )
                     push!(wmod.imports, MemImport(mod, name, nothing, Mem(memtype)))
+                elseif tag == 0x03
+                    ty = wread(io, ValType)
+                    mut = read(io, UInt8)
+                    @assert mut == 0x00 || mut == 0x01 "invalid mut for global"
+                    mut = mut == 0x01
+                    push!(wmod.imports, GlobalImport(mod, name, nothing,
+                                                     GlobalType(mut, ty)))
+                elseif tag == 0x04
+                    @assert read(io, UInt8) == 0x00 "invalid tag import"
+                    tagtype = LEB128.decode(io, UInt32) + one(UInt32)
+                    type = resolve_type(fntypes, tagtype)
+                    push!(wmod.imports, TagImport(mod, name, nothing, type))
+                else
+                    error("cannot import with tag $tag")
                 end
             end
         elseif sid == 0x03
             # 3. Func Section
             n_funcs = LEB128.decode(io, UInt32)
             for _ in 1:n_funcs
-                index = LEB128.decode(io, UInt32) + 1 # - 6 # nope
+                index = LEB128.decode(io, UInt32) + 1
+                fntype = resolve_type(fntypes, index)
                 push!(
                     wmod.funcs,
                     Func(
-                        nothing, fntypes[index],
-                        copy(fntypes[index].params),
+                        nothing, fntype,
+                        copy(fntype.params),
                         [],
                     )
                 )
@@ -433,7 +523,8 @@ function wread(io::IO)
         elseif sid == 0x06
             # 6. Global Section
             n_globals = LEB128.decode(io, UInt32)
-            for _ in n_globals
+            @debug "globals" n_globals
+            for _ in 1:n_globals
                 valtype = wread(io, ValType)
                 mut = read(io, UInt8)
                 @assert mut == 0x00 || mut == 0x01
@@ -452,12 +543,15 @@ function wread(io::IO)
                 name_length = LEB128.decode(io, UInt32)
                 name = String(read(io, name_length))
                 tag = read(io, UInt8)
+                index = one(Index) + LEB128.decode(io, UInt32)
                 if tag == 0x00
-                    index = one(Index) + LEB128.decode(io, UInt32)
                     push!(wmod.exports, FuncExport(name, index))
                 elseif tag == 0x02
-                    index = one(Index) + LEB128.decode(io, UInt32)
                     push!(wmod.exports, MemExport(name, index))
+                elseif tag == 0x03
+                    push!(wmod.exports, GlobalExport(name, index))
+                elseif tag == 0x04
+                    push!(wmod.exports, TagExport(name, index))
                 else
                     error("unsupported export tag $tag for export named \"$name\"")
                 end
@@ -525,6 +619,7 @@ function wread(io::IO)
                 n_bytes = LEB128.decode(io, UInt32)
                 bytes = read(io, n_bytes)
                 s = String(bytes)
+                push!(wmod.strings, s)
             end
         else
             throw("cannot read section $sid")

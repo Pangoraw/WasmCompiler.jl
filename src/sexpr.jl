@@ -1,15 +1,18 @@
-takes(_, _, ::Union{i32_const,i64_const,f32_const,f64_const,local_get,global_get,unreachable,string_const,nop,br}) = 0
+takes(_, _, ::Union{i32_const,i64_const,f32_const,f64_const,local_get,global_get,unreachable,string_const,nop,br,ref_null}) = 0
 takes(_, _, ::UnaryInst) = 1
-takes(_, _, ::Union{local_set,local_tee,global_set,drop,ref_cast,struct_get}) = 1
-takes(_, _, ::Union{i32_store,i64_store,f32_store,f64_store,v128_store}) = 2
+takes(_, _, ::Union{local_set,local_tee,global_set,drop,ref_cast,struct_get,ref_test}) = 1
+takes(_, _, ::Union{i32_store,i64_store,f32_store,f64_store,v128_store,struct_set,array_get}) = 2
 takes(_, _, ::Union{i32_load, i64_load, f32_load, f64_load,
                     i32_load8_s, i32_load8_u, i32_load16_s, i32_load16_u,
                     i64_load8_s, i64_load8_u, i64_load16_s, i64_load16_u,
                     i64_load32_s, i64_load32_u,v128_load}) = 1
+takes(_, _, ::Union{ref_as_non_null}) = 1
 takes(_, _, ::memory_copy) = 3
 takes(_, _, ::BinaryInst) = 2
 takes(_, _, ::v128cmp) = 2
 takes(_, _, ::br_if) = 2 # wrong
+takes(wmod, _, ::array_new) = 2 # elty, length
+takes(wmod, _, sn::struct_new) = length(_find_type(wmod, sn.typeidx).fields)
 function takes(wmod, _, (; tag)::throw_)
     for imp in wmod.imports
         imp isa TagImport || continue

@@ -17,11 +17,7 @@ using Test
     end
 
     f = WC.emit_func(add, Tuple{Int32,Int32})
-    mod = WC.WModule(
-        [], [f], [], [],
-        [], [], [], nothing,
-        [], [WC.FuncExport("add", 1)],
-    )
+    mod = WC.WModule(f)
 
     wasm = WC.wasm(mod) |> Wasmtime.WasmByteVec
 

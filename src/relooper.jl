@@ -263,9 +263,12 @@ end
     SuperGraph(cfg)
 
 State needed to perform the node splitting algorithm from
+
 > Compilers - Principles, Techniques, and Tools \\
 > Aho et al., sec 9.7.5.
+
 with the implementation described in
+
 > Beyond Relooper, Recursive Generation of WebAssembly \\
 > ICFP 2022, Norman Ramsey
 """

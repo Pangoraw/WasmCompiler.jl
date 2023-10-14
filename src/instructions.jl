@@ -63,7 +63,9 @@ struct StructRef <: WasmRef
     typeidx::Union{Nothing,Index}
 end
 
-struct StringRef <: WasmRef end
+struct StringRef <: WasmRef
+    null::Bool
+end
 
 valtype(::Type{Bool}) = i32
 valtype(::Type{Int32}) = i32
@@ -447,28 +449,36 @@ struct struct_get <: Inst
     typeidx::Index
     fieldidx::Index
 end
+struct struct_set <: Inst
+    typeidx::Index
+    fieldidx::Index
+end
 
 struct array_new <: Inst
     typeidx::Index
 end
 struct array_len <: Inst end
+struct array_set <: Inst
+    typeidx::Index
+end
 struct array_get <: Inst
     typeidx::Index
 end
 
+struct ref_eq <: BinaryInst end
 struct ref_null <: Inst
-    typeidx::Index
+    ref::WasmRef
 end
 struct ref_is_null <: Inst end
 struct ref_as_non_null <: Inst end
 struct ref_cast <: Inst
-    typeidx::Index
+    ref::WasmRef
 end
 struct ref_test <: Inst
-    typeidx::Index
+    ref::WasmRef
 end
 
 struct string_const <: Inst
-    contents::String
+    stringidx::Index # index in WModule.strings
 end
 
