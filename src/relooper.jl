@@ -321,18 +321,31 @@ function split!(sg)
         isempty(Ws) && continue
 
         # Create Xᵢ foreach Wᵢ ∈ Ws
-        # for Wᵢ in @view Ws[begin+1:end]
-        #     n_blocks = length(sg.cfg.blocks)
-        #     new_nodes = n_blocks+1:n_blocks+1+length(X.nodes)
-        #     for (x, x′) in zip(X.nodes, new_nodes)
-        #         b = sg.cfg.blocks[x]
-        #         new_b = Core.Compiler.BasicBlock(
-        #             b.stmts,
-        #             map(p -> new_nodes[p], b.preds),
-        #             map(p -> new_nodes[p], b.succs),
-        #         )
-        #     end
-        #     Xᵢ = SuperNode()
-        # end
+        for Wᵢ in @view Ws[begin+1:end]
+            n_blocks = length(sg.cfg.blocks)
+            new_nodes = n_blocks+1:n_blocks+1+length(X.nodes)
+
+            map_block(x) = x in X.nodes ? findfirst(==(x), X.nodes) + n_blocks : x
+            new_super_node = SuperNode(
+                map_block(X.head),
+                map(map_block, X.nodes),
+            )
+            
+            new_blocks = [
+                Core.Compiler.BasicBlock(
+                    b.stmts,
+                    map(map_block, b.preds),
+                    map(map_block, b.succs),
+                )
+                for b in map(i -> sg.cfg.blocks[i], X.nodes)
+            ]
+
+            append!(sg.cfg.blocks, new_blocks)
+            append!(sg.cfg.index, map(i -> sg.cfg.index[i], X.nodes))
+            push!(sg.nodes, new_super_node)
+        end
+
+        return true
     end
+    return false
 end
