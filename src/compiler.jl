@@ -302,6 +302,7 @@ function emit_codes(ctx, ir, rt, nargs)
     (; debug) = ctx
     exprs = Vector{Inst}[]
 
+    @show nargs
     types = Tuple{map(widenconst, ir.argtypes[begin:nargs+1])...}
 
     # TODO: handle first arg properly
@@ -310,7 +311,7 @@ function emit_codes(ctx, ir, rt, nargs)
             valtype(argtype) :
             ctx.mode == GCProposal ?
               StructRef(false, struct_idx!(ctx, argtype)) : i32
-        for argtype in map(widenconst, @view ir.argtypes[begin+1:begin+nargs])
+        for argtype in map(widenconst, @view ir.argtypes[begin+1:nargs+1])
     ]
 
     ssa_to_local = fill(-1, length(ir.stmts))
@@ -1291,11 +1292,16 @@ function emit_func!(ctx, types)
     end
     ir, rt = ircodes |> only
 
+    if ir isa Method
+        c = sprint(Base.show_tuple_as_call, ir.name, types)
+        throw("unhandled call to builtin $(c)")
+    end
+
     num_func_imports = count(imp -> imp isa FuncImport, ctx.mod.imports)
     func_idx = ctx.func_dict[types] = num_func_imports + length(ctx.mod.funcs) + 1
     push!(ctx.mod.funcs, Func("anon", voidtype, [], []))
 
-    nargs = length(types.parameters) - 1
+    nargs = min(length(ir.argtypes), length(types.parameters)) - 1
     expr, locals = try
         exprs, locals = emit_codes(ctx, ir, rt, nargs)
 

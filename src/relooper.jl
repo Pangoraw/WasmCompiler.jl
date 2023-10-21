@@ -1,4 +1,4 @@
-import Core.Compiler: DomTree, dominates, IRCode
+import Core.Compiler: DomTree, dominates, IRCode, CFG, BasicBlock
 
 """
     Relooper(exprs, ir)
@@ -21,16 +21,20 @@ struct Relooper
     # We already have emitted the code for each block content
     exprs::Vector{Vector{Inst}}
     ir::IRCode
+    cfg::CFG
     domtree::DomTree
     order::Vector{Int}
     context::Vector{Int}
 end
 
+_copy(cfg) = CFG(copy(cfg.blocks), copy(cfg.index))
+
 function Relooper(exprs, ir::IRCode)
-    domtree = Core.Compiler.construct_domtree(ir.cfg.blocks)
+    cfg, domtree = reduce!(_copy(ir.cfg))
     Relooper(
         exprs,
         ir,
+        cfg,
         domtree,
         reverse_postorder(domtree.dfs_tree),
         Int[],
@@ -82,7 +86,7 @@ end
 #   D
 # end
 function ismergenode(relooper::Relooper, bidx)
-    block = relooper.ir.cfg.blocks[bidx]
+    block = relooper.cfg.blocks[bidx]
     count(b -> relooper.order[b] < relooper.order[bidx], block.preds) >= 2
 end
 
@@ -101,7 +105,7 @@ end
 # C-┘
 #
 function isloopheader(relooper::Relooper, bidx)
-    block = relooper.ir.cfg.blocks[bidx]
+    block = relooper.cfg.blocks[bidx]
     any(b -> relooper.order[b] >= relooper.order[bidx], block.preds)
 end
 
@@ -127,8 +131,9 @@ function dobranch(relooper::Relooper, source, target)
     donode!(relooper, target)
 end
 
-isreturn(relooper, bidx) = relooper.ir.stmts[relooper.ir.cfg.blocks[bidx].stmts.stop][:inst] isa Core.ReturnNode
-isunreachable(relooper, bidx) = isreturn(relooper, bidx) && !isdefined(relooper.ir.stmts[relooper.ir.cfg.blocks[bidx].stmts.stop][:inst], :val)
+isreturn(relooper, bidx) = relooper.ir.stmts[relooper.cfg.blocks[bidx].stmts.stop][:inst] isa Core.ReturnNode
+isunreachable(relooper, bidx) = isreturn(relooper, bidx) &&
+                                !isdefined(relooper.ir.stmts[relooper.cfg.blocks[bidx].stmts.stop][:inst], :val)
 
 function getsuccs(relooper, bidx)
     ir = relooper.ir
@@ -272,18 +277,28 @@ with the implementation described in
 > Beyond Relooper, Recursive Generation of WebAssembly \\
 > ICFP 2022, Norman Ramsey
 """
-struct SuperGraph
+mutable struct SuperGraph
     domtree::DomTree
-    cfg::Core.Compiler.CFG
-    nodes::Vector{SuperNode}
+    const cfg::CFG
+    const nodes::Vector{SuperNode}
 end
-function SuperGraph(cfg::Core.Compiler.CFG)
+function SuperGraph(cfg::CFG)
     n_blocks = length(cfg.blocks)
     domtree = Core.Compiler.construct_domtree(cfg.blocks)
     SuperGraph(domtree, cfg, [
         SuperNode(b, BBNumber[b])
         for b in 1:n_blocks
     ])
+end
+
+function reduce!(cfg)
+    sg = SuperGraph(cfg)
+    while length(sg.nodes) != 1
+        while merge!(sg) end
+        split!(sg)
+    end
+    verifycfg(cfg)
+    return sg.cfg, sg.domtree
 end
 
 "control-flow predecessors of the super-node U in the super-graph sg"
@@ -312,7 +327,6 @@ function merge!(sg)
 end
 
 function split!(sg)
-
     for i in eachindex(sg.nodes)
         X = sg.nodes[i]
 
@@ -320,32 +334,58 @@ function split!(sg)
         Ws = filter(W -> !isdisjoint(W.nodes, preds), sg.nodes)
         isempty(Ws) && continue
 
+        @show X Ws
+
         # Create Xᵢ foreach Wᵢ ∈ Ws
         for Wᵢ in @view Ws[begin+1:end]
             n_blocks = length(sg.cfg.blocks)
-            new_nodes = n_blocks+1:n_blocks+1+length(X.nodes)
 
-            map_block(x) = x in X.nodes ? findfirst(==(x), X.nodes) + n_blocks : x
-            new_super_node = SuperNode(
+            map_block(x) = x ∈ X.nodes ? findfirst(==(x), X.nodes) + n_blocks : x
+            Xᵢ = SuperNode(
                 map_block(X.head),
                 map(map_block, X.nodes),
             )
-            
+
             new_blocks = [
-                Core.Compiler.BasicBlock(
+                BasicBlock(
                     b.stmts,
-                    map(map_block, b.preds),
-                    map(map_block, b.succs),
+                    map(map_block, b.preds) ∩ (Xᵢ.nodes ∪ Wᵢ.nodes),
+                    map(map_block, b.succs) ∩ (Xᵢ.nodes ∪ Wᵢ.nodes),
                 )
                 for b in map(i -> sg.cfg.blocks[i], X.nodes)
             ]
 
+            for W in Wᵢ.nodes
+                W_block = sg.cfg.blocks[W]
+                union!(W_block.preds, map(map_block, W_block.preds))
+                map!(map_block, W_block.succs, W_block.succs)
+            end
+
+            for x in X.nodes
+                x_block = sg.cfg.blocks[x]
+                setdiff!(x_block.preds, Wᵢ.nodes)
+            end
+
             append!(sg.cfg.blocks, new_blocks)
             append!(sg.cfg.index, map(i -> sg.cfg.index[i], X.nodes))
-            push!(sg.nodes, new_super_node)
+            push!(sg.nodes, Xᵢ)
         end
 
+        # NOTE: do not rebuild the CFG everytime
+        sg.domtree = Core.Compiler.construct_domtree(sg.cfg.blocks)
         return true
     end
     return false
+end
+
+# Verify that we have not broken the CFG
+function verifycfg(cfg)
+   for (i, b) in enumerate(cfg.blocks)
+       for p in b.preds
+           @assert i ∈ cfg.blocks[p].succs p => i
+       end
+       for s in b.succs
+           @assert i ∈ cfg.blocks[s].preds i => s
+       end
+   end
 end
