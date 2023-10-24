@@ -368,14 +368,17 @@ function ir_cfg(cond1, cond2)
 end
 
 @testset "Irreducible control flow" begin
-    ex = try
-        @code_wasm ir_cfg(true,false)
-    catch ex
-        ex
-    end
-    @test ex isa WC.CompilationError
-    @test ex.msg isa AssertionError
-    @test occursin("CFG is not", string(ex.msg))
+    (; obj) = @code_wasm mod=true ir_cfg(true,false)
+
+    code = WC.wasm(obj)
+
+    engine = WasmEngine()
+    store = Wasmtime.WasmtimeStore(engine)
+    module_ = Wasmtime.WasmtimeModule(engine, code)
+    instance = Wasmtime.WasmtimeInstance(store, module_)
+
+    wir_cfg = exports(instance).ir_cfg
+    @test wir_cfg(Int32(1), Int32(0)) == ir_cfg(true,false)
 end
 
 include("./pow.jl")
