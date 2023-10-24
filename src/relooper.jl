@@ -137,13 +137,12 @@ isunreachable(relooper, bidx) = isreturn(relooper, bidx) &&
 
 function getsuccs(relooper, bidx)
     ir = relooper.ir
-    block = ir.cfg.blocks[bidx]
+    block = relooper.cfg.blocks[bidx]
     @assert length(block.succs) <= 2
 
     gotoifnot = ir.stmts[block.stmts.stop][:inst]
     if length(block.succs) == 1
-        return gotoifnot isa Core.GotoNode ?
-            gotoifnot.label : bidx + 1, nothing
+        return only(block.succs), nothing
     end
 
     if gotoifnot isa Core.GotoNode
@@ -155,7 +154,11 @@ function getsuccs(relooper, bidx)
     truedest = block.succs[1] == falsedest ?
         last(block.succs) : first(block.succs)
 
-    truedest, falsedest
+    if !(truedest in relooper.cfg.blocks[bidx].succs)
+        return Tuple(relooper.cfg.blocks[bidx].succs...)
+    end
+
+    return truedest, falsedest
 end
 
 function nestwithin!(relooper::Relooper, bidx, mergenodes)
