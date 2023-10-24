@@ -30,7 +30,8 @@ end
 _copy(cfg) = CFG(copy(cfg.blocks), copy(cfg.index))
 
 function Relooper(exprs, ir::IRCode)
-    cfg, domtree = reduce!(_copy(ir.cfg))
+    exprs = copy(exprs)
+    exprs, cfg, domtree = reduce!(exprs, _copy(ir.cfg))
     Relooper(
         exprs,
         ir,
@@ -281,27 +282,28 @@ with the implementation described in
 > ICFP 2022, Norman Ramsey
 """
 mutable struct SuperGraph
+    exprs::Vector{Vector{Inst}}
     domtree::DomTree
     const cfg::CFG
     const nodes::Vector{SuperNode}
 end
-function SuperGraph(cfg::CFG)
+function SuperGraph(exprs, cfg::CFG)
     n_blocks = length(cfg.blocks)
     domtree = Core.Compiler.construct_domtree(cfg.blocks)
-    SuperGraph(domtree, cfg, [
+    SuperGraph(exprs, domtree, cfg, [
         SuperNode(b, BBNumber[b])
         for b in 1:n_blocks
     ])
 end
 
-function reduce!(cfg)
-    sg = SuperGraph(cfg)
+function reduce!(exprs, cfg)
+    sg = SuperGraph(exprs, cfg)
     while length(sg.nodes) != 1
         while merge!(sg) end
         split!(sg)
     end
     verifycfg(cfg)
-    return sg.cfg, sg.domtree
+    return sg.exprs, sg.cfg, sg.domtree
 end
 
 "control-flow predecessors of the super-node U in the super-graph sg"
@@ -349,13 +351,18 @@ function split!(sg)
                 map(map_block, X.nodes),
             )
 
+            get_block = Base.Fix1(getindex, sg.cfg.blocks)
             new_blocks = [
                 BasicBlock(
                     b.stmts,
                     map(map_block, b.preds) ∩ (Xᵢ.nodes ∪ Wᵢ.nodes),
                     map(map_block, b.succs) ∩ (Xᵢ.nodes ∪ Wᵢ.nodes),
                 )
-                for b in map(i -> sg.cfg.blocks[i], X.nodes)
+                for b in map(get_block, X.nodes)
+            ]
+            new_exprs = Vector{Inst}[
+                copy(sg.exprs[i])
+                for b in map(get_block, X.nodes)
             ]
 
             for W in Wᵢ.nodes
@@ -369,6 +376,7 @@ function split!(sg)
                 setdiff!(x_block.preds, Wᵢ.nodes)
             end
 
+            append!(sg.exprs, new_exprs)
             append!(sg.cfg.blocks, new_blocks)
             append!(sg.cfg.index, map(i -> sg.cfg.index[i], X.nodes))
             push!(sg.nodes, Xᵢ)
