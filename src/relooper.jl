@@ -13,9 +13,11 @@ The implementation is based on the paper:
 > ICFP 2022, Norman Ramsey
 
 TODOs:
-   - [ ] test and support ireducible control flow.
+   - [x] test and support ireducible control flow using node-splitting.
    - [ ] exception handling with `:enter` and `:leave`.
 
+The core API to use the relooper is to call `reloop(exprs, ir)` which will return
+a re-looped single list of instructions.
 """
 struct Relooper
     # We already have emitted the code for each block content
@@ -296,6 +298,12 @@ function SuperGraph(exprs, cfg::CFG)
     ])
 end
 
+"""
+    reduce!(exprs, cfg::CFG)
+
+Transforms an irreducible in a reducible CFG by performing
+node-splitting. See [`SuperGraph`](@ref).
+"""
 function reduce!(exprs, cfg)
     sg = SuperGraph(exprs, cfg)
     while length(sg.nodes) != 1
@@ -338,8 +346,6 @@ function split!(sg)
         preds = predecessors(sg, X)
         Ws = filter(W -> !isdisjoint(W.nodes, preds), sg.nodes)
         isempty(Ws) && continue
-
-        @show X Ws
 
         # Create Xᵢ foreach Wᵢ ∈ Ws
         for Wᵢ in @view Ws[begin+1:end]
