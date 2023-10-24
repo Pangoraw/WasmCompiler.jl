@@ -302,7 +302,6 @@ function emit_codes(ctx, ir, rt, nargs)
     (; debug) = ctx
     exprs = Vector{Inst}[]
 
-    @show nargs
     types = Tuple{map(widenconst, ir.argtypes[begin:nargs+1])...}
 
     # TODO: handle first arg properly
