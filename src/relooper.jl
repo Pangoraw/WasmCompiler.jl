@@ -119,6 +119,14 @@ function istryblock(relooper::Relooper, bidx)
         Meta.isexpr(ir.stmts[only(b.stmts)][:inst], :enter)
 end
 
+function getcatchblock(relooper::Relooper, bidx)
+    (; ir, cfg) = relooper
+    b = cfg.blocks[bidx]
+    inst = ir.stmts[only(b.stmts)][:inst]
+    @assert Meta.isexpr(inst, :enter)
+    only(inst.args)
+end
+
 function dobranch(relooper::Relooper, source, target)
     # Jumping backward means that the block is dominated by the loop header
     # therefore the target is present in the context and the jump can be
