@@ -115,14 +115,13 @@ end
 function istryblock(relooper::Relooper, bidx)
     (; ir, cfg) = relooper
     b = cfg.blocks[bidx]
-    length(b.stmts) == 1 &&
-        Meta.isexpr(ir.stmts[only(b.stmts)][:inst], :enter)
+    Meta.isexpr(ir.stmts[last(b.stmts)][:inst], :enter)
 end
 
 function getcatchblock(relooper::Relooper, bidx)
     (; ir, cfg) = relooper
     b = cfg.blocks[bidx]
-    inst = ir.stmts[only(b.stmts)][:inst]
+    inst = ir.stmts[last(b.stmts)][:inst]
     @assert Meta.isexpr(inst, :enter)
     only(inst.args)
 end
@@ -238,7 +237,7 @@ function donode!(relooper::Relooper, bidx)
     # @debug "placing" bidx toplace mergenodes
 
     if isloopheader(relooper, bidx)
-        block = ir.cfg.blocks[bidx]
+        block = relooper.cfg.blocks[bidx]
 
         # Each loop must have a single entry point, otherwise the CFG
         # is not reducible. So all edges must either be forward or the
@@ -251,6 +250,22 @@ function donode!(relooper::Relooper, bidx)
         codeforx = nestwithin!(relooper, bidx, mergenodes)
         @assert bidx == pop!(relooper.context)
         Loop(FuncType([], []), codeforx)
+    elseif istryblock(relooper, bidx)
+        catchblock = getcatchblock(relooper, bidx)
+        delete!(toplace, catchblock)
+
+        child = donode!(relooper, only(toplace))
+        code_for_catch = donode!(catchblock),
+        
+        Try(FuncType([], []),
+            Inst[
+                Block(FuncType([],[]), relooper.exprs[bidx]),
+                child,
+            ],
+            CatchBlock[CatchBlock(nothing, Inst[
+                code_for_catch,
+            ])],
+        )
     else
         push!(relooper.context, -1)
         codeforx = nestwithin!(relooper, bidx, mergenodes)
