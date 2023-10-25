@@ -112,6 +112,13 @@ function isloopheader(relooper::Relooper, bidx)
     any(b -> relooper.order[b] >= relooper.order[bidx], block.preds)
 end
 
+function istryblock(relooper::Relooper, bidx)
+    (; ir, cfg) = relooper
+    b = cfg.blocks[bidx]
+    length(b.stmts) == 1 &&
+        Meta.isexpr(ir.stmts[only(b.stmts)][:inst], :enter)
+end
+
 function dobranch(relooper::Relooper, source, target)
     # Jumping backward means that the block is dominated by the loop header
     # therefore the target is present in the context and the jump can be
