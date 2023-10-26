@@ -176,9 +176,14 @@ function read_inst(io::IO)
 
         lookahead = peek(io)
         inst = Inst[]
-        while lookahead != 0x19 && lookahead != 0x07
+        while lookahead != 0x19 && lookahead != 0x18 && lookahead != 0x07
             push!(inst, read_inst(io))
             lookahead = peek(io)
+        end
+
+        if lookahead == 0x18
+            read(io, UInt8)
+            return TryDelegate(inst, LEB128.decode(io, UInt32))
         end
 
         cblocks = CatchBlock[]
