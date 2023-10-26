@@ -16,7 +16,12 @@ function _make_tees!(instlist)
             _make_tees!(inst.trueinst)
             _make_tees!(inst.falseinst)
             continue
-        elseif inst isa Union{Block,Loop}
+        elseif inst isa Try
+            _make_tees!(inst.inst)
+            foreach(c -> _make_tees!(c.inst),
+                    inst.catches)
+            continue
+        elseif inst isa Union{Block,Loop,TryDelegate}
             _make_tees!(inst.inst)
             continue
         end
@@ -227,6 +232,25 @@ function _remove_useless_branches!(expr)
                     _remove_useless_branches!(newinst.inst)
                 end
             end
+        elseif inst isa Try
+            for newinst in inst.inst
+                if newinst isa If
+                    _remove_useless_branches!(newinst.trueinst)
+                    _remove_useless_branches!(newinst.falseinst)
+                elseif newinst isa Block
+                    _remove_useless_branches!(newinst.inst)
+                end
+            end
+            for c in inst.catches
+                for newinst in c.inst
+                    if newinst isa If
+                        _remove_useless_branches!(newinst.trueinst)
+                        _remove_useless_branches!(newinst.falseinst)
+                    elseif newinst isa Block
+                        _remove_useless_branches!(newinst.inst)
+                    end
+                end
+            end
         elseif inst isa If
             _remove_useless_branches!(inst.trueinst)
             _remove_useless_branches!(inst.falseinst)
@@ -272,8 +296,12 @@ function _leak_ifs!(expr, locals)
         i += 1
         inst = expr[i]
 
-        if inst isa Union{Loop,Block}
+        if inst isa Union{Loop,Block,TryDelegate}
             _leak_ifs!(inst.inst, locals)
+        elseif inst isa Try
+            _leak_ifs!(inst.inst, locals)
+            foreach(c -> _leak_ifs!(c.inst, locals),
+                    inst.catches)
         elseif inst isa If
             _leak_ifs!(inst.trueinst, locals)
             _leak_ifs!(inst.falseinst, locals)
@@ -350,8 +378,13 @@ collapse_branches!(f::Func) = (_collapse_branches!(f.inst); f)
 
 function _collapse_branches!(expr)
     for (i, inst) in enumerate(expr)
-        if inst isa Block || inst isa Loop
+        if inst isa Block || inst isa Loop || inst isa TryDelegate
             _collapse_branches!(inst.inst)
+            continue
+        elseif inst isa Try
+            _collapse_branches!(inst.inst)
+            foreach(c -> _collapse_branches!(c.inst),
+                    inst.catches)
             continue
         end
 

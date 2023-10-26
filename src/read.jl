@@ -170,6 +170,42 @@ function read_inst(io::IO)
             @assert last == 0x0B "invalid if inst"
         end
         return If(fntype, trueinst, falseinst)
+    elseif tag == 0x06
+        fntype = read_block_type(io)
+        inst = Inst[]
+
+        lookahead = peek(io)
+        inst = Inst[]
+        while lookahead != 0x19 && lookahead != 0x07
+            push!(inst, read_inst(io))
+            lookahead = peek(io)
+        end
+
+        cblocks = CatchBlock[]
+        lookahead = read(io, UInt8)
+        while lookahead == 0x07
+            lookahead = peek(io)
+            tagidx = LEB128.decode(io, UInt32)
+            cinst = Inst[]
+            while lookahead != 0x19 && lookahead != 0x07 && lookahead != 0x0b
+                push!(inst, read_inst(io))
+                lookahead = peek(io)
+            end
+            lookahead = read(io,UInt8)
+            push!(cblocks, CatchBlock(tagidx, cinst))
+        end
+
+        if lookahead == 0x19
+            call_inst = Inst[]
+            read_inst_list!(io, call_inst)
+            push!(cblocks, CatchBlock(nothing, call_inst))
+        else
+            @assert read(io, UInt8) == 0x0b
+        end
+
+        return Try(fntype, inst, cblocks)
+    elseif tag == 0x08
+        return throw_(LEB128.decode(io, UInt32))
     elseif tag == 0x0C
         return br(LEB128.decode(io, UInt32))
     elseif tag == 0x0d
@@ -282,7 +318,7 @@ function read_inst(io::IO)
             error("invalid instruction code v128 0xfd $tag")
         end
     else
-        tag = "0x" * string(tag; base=16)
+        tag = "0x" * string(tag; base=16, pad=2)
         offset = "0x" * string(position(io); base=16)
         error("invalid instruction code $tag at $offset")
     end
@@ -608,7 +644,9 @@ function wread(io::IO)
             n_tags = LEB128.decode(io, UInt32)
             for _ in 1:n_tags
                 attribute = read(io, UInt8)
-                type = LEB128.decode(io, UInt32)
+                index = LEB128.decode(io, UInt32) + 1
+                fntype = resolve_type(fntypes, index)
+                push!(wmod.tags, fntype)
             end
         elseif sid == 0x0e
             # 14. String refs section

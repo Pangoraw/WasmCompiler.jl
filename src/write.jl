@@ -344,7 +344,23 @@ function wwrite(io::IO, if_::If)
     end
     n += write(io, 0x0B)
 end
+function wwrite(io::IO, try_::Try)
+    n = write(io, 0x06)
+    n += write_block_type(io, try_.fntype)
+    n += wwrite(io, try_.inst)
+    for c in try_.catches
+        if isnothing(c.tag)
+            n += wwrite(io, 0x19)
+        else
+            n += wwrite(io, 0x07, UInt32(c.tag - 1))
+        end
+        n += wwrite(io, c.inst)
+    end
+    n += wwrite(io, 0x0b)
+    n
+end
 
+wwrite(io::IO, t::throw_) = wwrite(io, 0x08, t.tag - one(UInt32))
 wwrite(io::IO, b::br) = wwrite(io, 0x0c, b.label)
 wwrite(io::IO, b::br_if) = wwrite(io, 0x0d, b.label)
 

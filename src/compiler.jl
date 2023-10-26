@@ -53,7 +53,7 @@ RuntimeModule() =
           FuncImport("bootstrap", "jl_unbox_int64", "jl-unbox-int64", FuncType([jl_value_t], [i64])),
           FuncImport("bootstrap", "jl_unbox_float32", "jl-unbox-float32", FuncType([jl_value_t], [f32])),
           FuncImport("bootstrap", "jl_unbox_float64", "jl-unbox-float64", FuncType([jl_value_t], [f64])),
-          GlobalImport("bootstrap", "jl_exception", "jl-exception", GlobalType(true, jl_value_t)),
+          GlobalImport("bootstrap", "jl_exception", "jl-exception", GlobalType(true, StructRef(true, jl_value_t.typeidx))),
           TagImport("bootstrap", "jl_exception_tag", "jl-exception-tag", voidtype),
       ], [], [],
   )
@@ -214,7 +214,7 @@ function convert_val!(inst, from, to)
     if from == to
         push!(inst, nop())
     elseif from isa StructRef && to == jl_value_t
-        push!(inst, ref_cast(jl_value_t.typeidx))
+        push!(inst, ref_cast(jl_value_t))
     elseif from == jl_value_t && to == i32
         push!(inst, call(jl_unbox_int32))
     elseif from == jl_value_t && to == i64
@@ -224,13 +224,13 @@ function convert_val!(inst, from, to)
     elseif from == jl_value_t && to == f64
         push!(inst, call(jl_unbox_float64))
     elseif from == i32 && to == jl_value_t
-        push!(inst, call(jl_box_int32), ref_cast(jl_value_t.typeidx))
+        push!(inst, call(jl_box_int32), ref_cast(jl_value_t))
     elseif from == i64 && to == jl_value_t
-        push!(inst, call(jl_box_int64), ref_cast(jl_value_t.typeidx))
+        push!(inst, call(jl_box_int64), ref_cast(jl_value_t))
     elseif from == f32 && to == jl_value_t
-        push!(inst, call(jl_box_float32), ref_cast(jl_value_t.typeidx))
+        push!(inst, call(jl_box_float32), ref_cast(jl_value_t))
     elseif from == f64 && to == jl_value_t
-        push!(inst, call(jl_box_float64), ref_cast(jl_value_t.typeidx))
+        push!(inst, call(jl_box_float64), ref_cast(jl_value_t))
     elseif from == i64 && to == i32
         push!(inst, i32_wrap_i64())
     elseif from == i32 && to == i64
@@ -948,7 +948,12 @@ function emit_codes(ctx, ir, rt, nargs)
                     push!(exprs[bidx], global_get(emit_datatype!(ctx, typ)))
                     push!(exprs[bidx], call(jl_isa))
                 elseif f === Core.throw
-                    convert_val!(exprs[bidx], irtype(inst.args[2]), jl_value_t)
+                    if length(inst.args) == 2
+                        convert_val!(exprs[bidx], irtype(inst.args[2]), jl_value_t)
+                    else
+                        @assert length(inst.args) == 1
+                        push!(exprs[bidx], ref_null(jl_value_t))
+                    end
                     push!(exprs[bidx], global_set(jl_exception), throw_(jl_exception_tag))
                     continue
                 elseif f === Base.Math.sqrt_llvm
@@ -1205,6 +1210,12 @@ function emit_codes(ctx, ir, rt, nargs)
                 push!(exprs[bidx], i32_const(1), local_set(getlocal!(ssa)))
             elseif Meta.isexpr(inst, (:gc_preserve_begin, :gc_preserve_end))
                 continue
+            elseif Meta.isexpr(inst, (:enter, :leave))
+                continue
+            elseif Meta.isexpr(inst, :pop_exception)
+                push!(exprs[bidx],
+                      global_get(jl_exception),
+                      local_set(getlocal!(ssa)))
             elseif Meta.isexpr(inst, :throw_undef_if_not)
                 cond = last(inst.args)
                 emit_val!(exprs[bidx], cond)

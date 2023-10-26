@@ -136,6 +136,11 @@ struct Try <: ContainerInst
     inst::Vector{Inst}
     catches::Vector{CatchBlock}
 end
+struct TryDelegate <: ContainerInst
+    fntype::FuncType
+    inst::Vector{Inst}
+    label::Index
+end
 
 struct global_get <: Inst
     n::Index

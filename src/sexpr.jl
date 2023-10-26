@@ -23,7 +23,7 @@ function takes(wmod, _, (; tag)::throw_)
     length(wmod.tags[tag].fntype.params)
 end
 takes(wmod, _, c::call) = length(get_function_type(wmod, c.func).params)
-takes(_, _, block::Union{Block,Loop}) = length(block.fntype.params)
+takes(_, _, block::Union{Block,Loop,Try}) = length(block.fntype.params)
 takes(_, _, if_::If) = length(if_.fntype.params) + 1
 takes(_, func, ::return_) = length(func.fntype.results)
 takes(_, _, ::select) = 3

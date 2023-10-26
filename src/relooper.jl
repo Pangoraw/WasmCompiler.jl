@@ -90,7 +90,7 @@ end
 # end
 function ismergenode(relooper::Relooper, bidx)
     block = relooper.cfg.blocks[bidx]
-    count(b -> relooper.order[b] < relooper.order[bidx], block.preds) >= 2
+    count(b -> !iszero(b) && relooper.order[b] < relooper.order[bidx], block.preds) >= 2
 end
 
 # N.B. A block is a loop header if any edge flows backward to it.
@@ -109,7 +109,7 @@ end
 #
 function isloopheader(relooper::Relooper, bidx)
     block = relooper.cfg.blocks[bidx]
-    any(b -> relooper.order[b] >= relooper.order[bidx], block.preds)
+    any(b -> relooper.order[b] >= relooper.order[bidx], filter(!iszero, block.preds))
 end
 
 function istryblock(relooper::Relooper, bidx)
@@ -189,6 +189,20 @@ function nestwithin!(relooper::Relooper, bidx, mergenodes)
             return relooper.exprs[bidx]
         end
 
+        if istryblock(relooper, bidx)
+            cblock = getcatchblock(relooper, bidx)
+            tblock = setdiff(relooper.cfg.blocks[bidx].succs, cblock) |> only
+            push!(relooper.context, -1)
+            push!(relooper.exprs[bidx],
+                Try(FuncType([], []),
+                    Inst[dobranch(relooper, bidx, tblock)],
+                    [CatchBlock(nothing, Inst[dobranch(relooper, bidx, cblock)])],
+                ),
+            )
+            @assert -1 == pop!(relooper.context)
+            return relooper.exprs[bidx]
+        end
+
         truedest, falsedest = getsuccs(relooper,bidx)
 
         if isnothing(falsedest)
@@ -250,22 +264,6 @@ function donode!(relooper::Relooper, bidx)
         codeforx = nestwithin!(relooper, bidx, mergenodes)
         @assert bidx == pop!(relooper.context)
         Loop(FuncType([], []), codeforx)
-    elseif istryblock(relooper, bidx)
-        catchblock = getcatchblock(relooper, bidx)
-        delete!(toplace, catchblock)
-
-        child = donode!(relooper, only(toplace))
-        code_for_catch = donode!(catchblock),
-        
-        Try(FuncType([], []),
-            Inst[
-                Block(FuncType([],[]), relooper.exprs[bidx]),
-                child,
-            ],
-            CatchBlock[CatchBlock(nothing, Inst[
-                code_for_catch,
-            ])],
-        )
     else
         push!(relooper.context, -1)
         codeforx = nestwithin!(relooper, bidx, mergenodes)
@@ -346,7 +344,7 @@ end
 
 "control-flow predecessors of the super-node U in the super-graph sg"
 predecessors(sg, U) =
-    setdiff(sg.cfg.blocks[U.head].preds, U.nodes)
+    filter!(!iszero, setdiff(sg.cfg.blocks[U.head].preds, U.nodes))
 
 function merge!(sg)
     for u in eachindex(sg.nodes)
@@ -429,7 +427,7 @@ end
 function verifycfg(cfg)
    for (i, b) in enumerate(cfg.blocks)
        for p in b.preds
-           @assert i ∈ cfg.blocks[p].succs p => i
+          @assert iszero(p) || i ∈ cfg.blocks[p].succs p => i
        end
        for s in b.succs
            @assert i ∈ cfg.blocks[s].preds i => s

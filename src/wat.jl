@@ -383,6 +383,7 @@ function _printinst(io::IO, s)
 end
 
 function print_tagidx(io::IO, idx)
+    base_idx = idx
     wmod = get(io, :mod, nothing)
     if isnothing(wmod)
         print(io, idx)
@@ -400,11 +401,7 @@ function print_tagidx(io::IO, idx)
     end
 
     if isnothing(name)
-        name = wmod.tags[idx].name
-    end
-
-    if isnothing(name)
-        print(io, idx)
+        print(io, base_idx)
         return
     end
 
@@ -566,6 +563,18 @@ function _printwasm(io::IO, instop::InstOperands)
         print(io, ')')
         return
     end
+    # if instop.inst isa Try
+    #     wmod = get(io, :mod, nothing)
+    #     func = get(io, :func, nothing)
+    #     instops = sexpr(wmod, func, instop.inst.inst)
+    #     _printkw(io, "try")
+    #     if instop.inst.fntype != voidtype
+    #         _printwasm(io, instop.inst.fntype)
+    #     end
+    #     println(io)
+    #     ctx = IOContext(io, :indent => indent + INDENT_INC)
+
+    # end
     if instop.inst isa If
         wmod = get(io, :mod, nothing)
         func = get(io, :func, nothing)
@@ -697,12 +706,12 @@ function _printwasm(io::IO, try_::Try)
     indent = get(io, :indent, INDENT_INC)
     print(io, INDENT_S^indent)
     _printkw(io, "try")
-    println(io)
     _printwasm(io, try_.fntype)
     println(io)
     ctx = IOContext(io, :indent => indent + INDENT_INC)
     _printwasm(ctx, try_.inst)
     for cblock in try_.catches
+        println(io)
         print(io, INDENT_S^indent)
         _printkw(io, isnothing(cblock.tag) ? "catch_all" : "catch")
         println(io)

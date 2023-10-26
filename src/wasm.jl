@@ -211,9 +211,9 @@ end
 
 ## Utilities
 
-function Base.map!(f, cont::Union{Func,Block,Loop})
+function Base.map!(f, cont::Union{Func,Block,Loop,TryDelegate})
     map!(cont.inst, cont.inst) do inst
-        if inst isa Union{Block,Loop,If}
+        if inst isa ContainerInst
             v = f(inst)
             map!(f, inst)
             v
@@ -223,9 +223,32 @@ function Base.map!(f, cont::Union{Func,Block,Loop})
     end
     cont
 end
+function Base.map!(f, try_::Try)
+    map!(try_.inst, try_.inst) do inst
+        if inst isa ContainerInst
+            v = f(inst)
+            map!(f, inst)
+            v
+        else
+            f(inst)
+        end
+    end
+    for c in try_.catches
+        map!(c.inst, c.inst) do inst
+            if inst isa ContainerInst
+                v = f(inst)
+                map!(f, inst)
+                v
+            else
+                f(inst)
+            end
+        end
+    end
+    try_
+end
 function Base.map!(f, if_::If)
     map!(if_.trueinst, if_.trueinst) do inst
-        if inst isa Union{Block,Loop,If}
+        if inst isa ContainerInst
             v = f(inst)
             map!(f, inst)
             v
@@ -234,7 +257,7 @@ function Base.map!(f, if_::If)
         end
     end
     map!(if_.falseinst, if_.falseinst) do inst
-        if inst isa Union{Block,Loop,If}
+        if inst isa ContainerInst
             v = f(inst)
             map!(f, inst)
             v
@@ -247,7 +270,7 @@ end
 
 function Base.foreach(f, cont::Union{Func,Block,Loop})
     for inst in cont.inst
-        if inst isa Union{Block,Loop,If}
+        if inst isa ContainerInst
             f(inst)
             foreach(f, inst)
         else
@@ -255,9 +278,30 @@ function Base.foreach(f, cont::Union{Func,Block,Loop})
         end
     end
 end
+function Base.foreach(f, try_::Try)
+    for inst in try_.inst
+        if inst isa ContainerInst
+            f(inst)
+            foreach(f, inst)
+        else
+            f(inst)
+        end
+    end
+    for c in try_.catches
+        for inst in c.inst
+            if inst isa ContainerInst
+                f(inst)
+                foreach(f, inst)
+            else
+                f(inst)
+            end
+        end
+    end
+    try_
+end
 function Base.foreach(f, if_::If)
     for inst in if_.trueinst
-        if inst isa Union{Block,Loop,If}
+        if inst isa ContainerInst
             f(inst)
             foreach(f, inst)
         else
@@ -274,32 +318,56 @@ function Base.foreach(f, if_::If)
     end
 end
 
-function Base.filter!(f, cont::Union{Func,Block,Loop})
+function Base.filter!(f, cont::Union{Func,Block,Loop,TryDelegate})
     filter!(cont.inst) do inst
-        if inst isa Union{Block,Loop,If}
+        if inst isa ContainerInst
             v = f(inst)
             v && filter!(f, inst)
-            v 
+            v
         else
             f(inst)
         end
     end
     cont
 end
-function Base.filter!(f, if_::If)
-    filter!(if_.trueinst) do inst
-        if inst isa Union{Block,Loop,If}
+function Base.filter!(f, try_::Try)
+    filter!(try_.inst) do inst
+        if inst isa ContainerInst
             v = f(inst)
             v && filter!(f, inst)
-            v 
+            v
+        else
+            f(inst)
+        end
+    end
+    for c in try_.catches
+        filter!(c.inst) do inst
+            if inst isa ContainerInst
+                v = f(inst)
+                v && filter!(f, inst)
+                v
+            else
+                f(inst)
+            end
+        end
+    end
+    try_
+end
+function Base.filter!(f, if_::If)
+    filter!(if_.trueinst) do inst
+        if inst isa ContainerInst
+            v = f(inst)
+            v && filter!(f, inst)
+            v
         else
             f(inst)
         end
     end
     filter!(if_.falseinst) do inst
-        if inst isa Union{Block,Loop,If}
-            filter!(f, inst)
-            true
+        if inst isa ContainerInst
+            v = f(inst)
+            v && filter!(f, inst)
+            v
         else
             f(inst)
         end

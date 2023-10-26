@@ -79,13 +79,14 @@ macro code_wasm(exprs...)
                 $(wmod) === :malloc ?
                 WasmCompiler.MallocModule() :
                 WasmCompiler.WModule()
+            num_funcs = length(module_.funcs)
             WasmCompiler.emit_func!(module_, $f, types;
                                     optimize=$optimize !== false,
                                     debug=$(debug),
                                     mode=$(wmod) === :malloc ? $(WasmCompiler.Malloc) :
                                                                $(WasmCompiler.GCProposal))
             if applicable(nameof, $f)
-                WasmCompiler.export!(module_, string(nameof($f)), 1)
+                WasmCompiler.export!(module_, string(nameof($f)), num_funcs + 1)
             end
             if $optimize === :binaryen
                 module_ = WasmCompiler.optimize(module_; debug=$debug)
