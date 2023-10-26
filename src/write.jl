@@ -359,6 +359,7 @@ function wwrite(io::IO, try_::Try)
     n += wwrite(io, 0x0b)
     n
 end
+wwrite(io::IO, td::TryDelegate) = wwrite(io, 0x06, td.inst, 0x18, UInt32(td.label))
 
 wwrite(io::IO, t::throw_) = wwrite(io, 0x08, t.tag - one(UInt32))
 wwrite(io::IO, b::br) = wwrite(io, 0x0c, b.label)
