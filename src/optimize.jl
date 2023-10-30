@@ -420,7 +420,9 @@ function unused_functions(wmod)
         end
     end
 
-    entries = filter(exp -> exp isa FuncExport, wmod.exports)
+    entries = map(exp -> exp.func, filter(exp -> exp isa FuncExport, wmod.exports))
+    !isnothing(wmod.start) && wmod.start ∉ entries && push!(entries, wmod.start)
+
     called = BitSet()
 
     function dfs(fi)
@@ -432,9 +434,8 @@ function unused_functions(wmod)
     end
 
     for ent in entries
-        dfs(ent.func)
+        dfs(ent)
     end
-    push!(called, wmod.start)
 
     called
 end
