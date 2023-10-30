@@ -88,7 +88,9 @@ macro code_wasm(exprs...)
             if applicable(nameof, $f)
                 WasmCompiler.export!(module_, string(nameof($f)), num_funcs + 1)
             end
-            if $optimize === :binaryen
+            if $(esc(optimize)) === true
+                module_ = WasmCompiler.optimize!(module_)
+            elseif $(esc(optimize)) === :binaryen
                 module_ = WasmCompiler.optimize(module_; debug=$debug)
             end
             Wat(module_, $(print_sexpr))
