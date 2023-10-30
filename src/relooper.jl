@@ -14,7 +14,7 @@ The implementation is based on the paper:
 
 TODOs:
    - [x] test and support ireducible control flow using node-splitting.
-   - [ ] exception handling with `:enter` and `:leave`.
+   - [x] exception handling with `:enter` and `:leave`.
 
 The core API to use the relooper is to call `reloop(exprs, ir)` which will return
 a re-looped single list of instructions.
