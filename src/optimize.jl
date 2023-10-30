@@ -409,11 +409,28 @@ function _collapse_branches!(expr)
     expr
 end
 
-function unused_functions(wmod)
+"""
+    remove_unused_functions!(wmod; remove_imports=true)::WModule
+
+Remove functions which are not called anywhere or not exported; also
+remove imported functions if they are not used. This change the imports
+which should be provided when instantiating the module so it can be disabled
+with `remove_imports=false`.
+
+```wat
+(module
+    (func))
+```
+is transformed to:
+```wat
+(module)
+```
+"""
+function remove_unused_functions!(wmod; remove_imports=true)
     num_imports = count(imp -> imp isa FuncImport, wmod.imports)
     edges = Pair{Int,Int}[]
     for (i, f) in enumerate(wmod.funcs)
-        foreach(f.inst) do inst
+        foreach(f) do inst
             if inst isa WC.call
                 push!(edges, num_imports + i => inst.func)
             end
@@ -423,11 +440,11 @@ function unused_functions(wmod)
     entries = map(exp -> exp.func, filter(exp -> exp isa FuncExport, wmod.exports))
     !isnothing(wmod.start) && wmod.start ∉ entries && push!(entries, wmod.start)
 
-    called = BitSet()
+    used = remove_imports ? BitSet() : BitSet(1:num_imports)
 
     function dfs(fi)
-        fi ∈ called && return
-        push!(called, fi)
+        fi ∈ used && return
+        push!(used, fi)
 
         succs = [s for (p, s) in edges if p == fi]
         foreach(dfs, succs)
@@ -437,5 +454,29 @@ function unused_functions(wmod)
         dfs(ent)
     end
 
-    called
+    last_func = num_imports + length(wmod.funcs)
+    unused = setdiff(BitSet(1:last_func), used)
+
+    new_indices = map(
+        fi -> fi ∈ used ? count(∈(used), 1:fi) : -1,
+        1:last_func,
+    )
+
+    unused_v = collect(unused)
+    imports_to_delete = filter(<=(num_imports), unused_v)
+    funcs_to_delete = filter(>(num_imports), unused_v) .- num_imports
+
+    deleteat!(wmod.funcs, funcs_to_delete)
+    deleteat!(wmod.imports, imports_to_delete)
+
+    for f in wmod.funcs
+        map!(f) do inst
+            inst isa call || return inst
+            new_index = new_indices[inst.func]
+            @assert new_index > 0
+            call(new_index)
+        end
+    end
+
+    wmod
 end
