@@ -954,7 +954,9 @@ function emit_codes(ctx, ir, rt, nargs)
                         @assert length(inst.args) == 1
                         push!(exprs[bidx], ref_null(jl_value_t))
                     end
-                    push!(exprs[bidx], global_set(jl_exception), throw_(jl_exception_tag))
+                    push!(exprs[bidx],
+                          global_set(jl_exception),
+                          throw_(jl_exception_tag))
                     continue
                 elseif f === Base.Math.sqrt_llvm
                     argtype = irtype(inst.args[2])
@@ -1044,7 +1046,12 @@ function emit_codes(ctx, ir, rt, nargs)
                     f === Core.throw ||
                     f === Base.Math.throw_complex_domainerror
 
-                    push!(exprs[bidx], unreachable())
+                    if ctx.mode != GCProposal
+                        push!(exprs[bidx], unreachable())
+                    else
+                        push!(exprs[bidx],
+                              throw_(jl_exception_tag))
+                    end
                     continue
                 end
 

@@ -210,7 +210,7 @@ function read_inst(io::IO)
 
         return Try(fntype, inst, cblocks)
     elseif tag == 0x08
-        return throw_(LEB128.decode(io, UInt32))
+        return throw_(one(Index) + LEB128.decode(io, UInt32))
     elseif tag == 0x0C
         return br(LEB128.decode(io, UInt32))
     elseif tag == 0x0d

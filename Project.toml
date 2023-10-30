@@ -9,6 +9,9 @@ Binaryen_jll = "a54ac8ab-712d-5a0e-8e11-9296c0d3c20e"
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 Wasmtime = "f519113a-1485-4b12-af44-dbf9b5a2f6b4"
+Base64 = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
+Deno_jll = "04572ae6-984a-583e-9378-9577a1c2574d"
+JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
 
 [targets]
-test = ["Test", "Wasmtime"]
+test = ["Test", "Wasmtime", "Base64", "JSON3", "Deno_jll"]

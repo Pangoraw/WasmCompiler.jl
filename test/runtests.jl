@@ -11,6 +11,9 @@ using Wasmtime: WasmtimeStore, WasmtimeModule, WasmtimeInstance
 using Wasmtime: exports
 using Test
 
+include("utils.jl")
+include("try-catch.jl")
+
 @testset "add" begin
     function add(a, b)
         a + b
@@ -81,7 +84,13 @@ end
 end
 
 @testset "sqrt" begin
-    (; obj) = @code_wasm optimize=true mod=true sqrt(1f0)
+    (; obj) = @code_wasm optimize=true mod=:malloc sqrt(1f0)
+    num_imports = count(imp -> imp isa WC.FuncImport, obj.imports)
+    empty!(obj.imports) # remove malloc/free imports
+    map!(obj.exports, obj.exports) do exp # renumber func exports
+        exp isa WC.FuncExport || return exp
+        WC.FuncExport(exp.name, exp.func - num_imports)
+    end
     mod = obj
 
     wasm = WC.wasm(mod) |> Wasmtime.WasmByteVec

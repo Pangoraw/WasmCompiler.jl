@@ -408,3 +408,33 @@ function _collapse_branches!(expr)
     end
     expr
 end
+
+function unused_functions(wmod)
+    num_imports = count(imp -> imp isa FuncImport, wmod.imports)
+    edges = Pair{Int,Int}[]
+    for (i, f) in enumerate(wmod.funcs)
+        foreach(f.inst) do inst
+            if inst isa WC.call
+                push!(edges, num_imports + i => inst.func)
+            end
+        end
+    end
+
+    entries = filter(exp -> exp isa FuncExport, wmod.exports)
+    called = BitSet()
+
+    function dfs(fi)
+        fi ∈ called && return
+        push!(called, fi)
+
+        succs = [s for (p, s) in edges if p == fi]
+        foreach(dfs, succs)
+    end
+
+    for ent in entries
+        dfs(ent.func)
+    end
+    push!(called, wmod.start)
+
+    called
+end
