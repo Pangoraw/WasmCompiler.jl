@@ -84,8 +84,7 @@ end
 end
 
 @testset "sqrt" begin
-    wat = (; obj) = @code_wasm optimize=true mod=:malloc sqrt(1f0)
-    display(wat)
+    (; obj) = @code_wasm optimize=true mod=:malloc sqrt(1f0)
     num_imports = count(imp -> imp isa WC.FuncImport, obj.imports)
     empty!(obj.imports) # remove malloc/free imports
     map!(obj.exports, obj.exports) do exp # renumber func exports

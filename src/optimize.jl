@@ -477,6 +477,9 @@ function remove_unused_functions!(wmod; remove_imports=true)
             call(new_index)
         end
     end
+    map!(exp -> exp isa FuncExport ?
+                FuncExport(exp.name, new_indices[exp.func]) : exp,
+         wmod.exports, wmod.exports)
 
     wmod
 end
