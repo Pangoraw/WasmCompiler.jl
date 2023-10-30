@@ -1399,6 +1399,7 @@ end
 
 function optimize!(mod)
     foreach(optimize_func!, mod.funcs)
+    remove_unused_functions!(mod)
     mod
 end
 function optimize_func!(f)
