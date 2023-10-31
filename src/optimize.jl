@@ -467,7 +467,9 @@ function remove_unused_functions!(wmod; remove_imports=true)
     funcs_to_delete = filter(>(num_imports), unused_v) .- num_imports
 
     deleteat!(wmod.funcs, funcs_to_delete)
-    deleteat!(wmod.imports, imports_to_delete)
+    deleteat!(wmod.imports, _import_indices(imp -> imp isa FuncImport,
+                                            wmod.imports,
+                                            imports_to_delete))
 
     for f in wmod.funcs
         map!(f) do inst
@@ -480,6 +482,83 @@ function remove_unused_functions!(wmod; remove_imports=true)
     map!(exp -> exp isa FuncExport ?
                 FuncExport(exp.name, new_indices[exp.func]) : exp,
          wmod.exports, wmod.exports)
+
+    if !isnothing(wmod.start)
+        wmod.start = new_indices[wmod.start]
+    end
+
+    wmod
+end
+
+function remove_start_if_empty!(wmod)
+    isnothing(wmod.start) && return wmod
+
+    num_imports = count(imp -> imp isa FuncImport, wmod.imports)
+    wmod.start <= num_imports && return wmod
+
+    f_start = wmod.funcs[wmod.start - num_imports]
+    if isempty(f_start.inst)
+        wmod.start = nothing
+    end
+
+    wmod
+end
+
+function _import_indices(f, imports, indices)
+    map(indices) do i
+        c = 0
+        findfirst(imports) do imp
+            f(imp) || return false
+            c += 1
+            c == i
+        end
+    end
+end
+
+function remove_unused_globals!(wmod; remove_imports=true)
+    used_globals = BitSet()
+    for f in wmod.funcs
+        foreach(f) do inst
+            inst isa Union{global_get,global_set} || return
+            push!(used_globals, inst.n)
+        end
+    end
+    for exp in wmod.exports
+        exp isa GlobalExport || continue
+        push!(used_globals, exp.globalidx)
+    end
+
+    num_imports = count(imp -> imp isa GlobalImport, wmod.imports)
+    if !remove_imports
+        union!(used_globals, 1:num_imports)
+    end
+
+    last_global = num_imports + length(wmod.globals)
+
+    new_indices = map(
+        gi -> gi ∈ used_globals ? count(∈(used_globals), 1:gi) : -1,
+        1:last_global
+    )
+
+    removed_imports = filter(∉(used_globals), 1:num_imports)
+    removed_globals = filter(∉(used_globals), num_imports+1:last_global)
+
+    deleteat!(wmod.imports, _import_indices(imp -> imp isa GlobalImport,
+                                            wmod.imports,
+                                            removed_imports))
+    deleteat!(wmod.globals, removed_globals)
+
+    for f in wmod.funcs
+        map!(f) do inst
+            inst isa Union{global_get,global_set} || return inst
+            typeof(inst)(new_indices[inst.n])
+        end
+    end
+
+    map!(wmod.exports, wmod.exports) do exp
+        exp isa GlobalExport || return exp
+        GlobalExport(exp.name, new_indices[exp.globalidx])
+    end
 
     wmod
 end
