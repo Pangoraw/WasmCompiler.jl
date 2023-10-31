@@ -346,6 +346,17 @@ end
 predecessors(sg, U) =
     filter!(!iszero, setdiff(sg.cfg.blocks[U.head].preds, U.nodes))
 
+# Merges two super nodes together, for example, the following supergraph where
+# each CFG node is initially its own supernode will sequentially be merged in
+# the following supernodes.
+#   A
+#  ↙ ↘      1. Merge: [(A), (B), (C), (D)] -> [(A,B), (C), (D)]
+# B   C     2. Merge: [(A,B), (C), (D)]    -> [(A,B,C), (D)]
+#  ↘ ↙      3. Merge: [(A,B,C), (D)]       -> [(A,B,C,D)]
+#   D
+# having a single node, after a series of merge means that the CFG is reducible.
+# If merging cannot be performed and there are more than one supernode, one of them
+# needs to be split using `split!`.
 function merge!(sg)
     for u in eachindex(sg.nodes)
         for v in eachindex(sg.nodes)
@@ -416,7 +427,7 @@ function split!(sg)
             push!(sg.nodes, Xᵢ)
         end
 
-        # NOTE: do not rebuild the CFG everytime
+        # NOTE: do not rebuild the CFG domtree everytime
         sg.domtree = Core.Compiler.construct_domtree(sg.cfg.blocks)
         return true
     end
