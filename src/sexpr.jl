@@ -70,7 +70,7 @@ function sexpr!(wmod, func, expr::Vector{Inst}, ctx)
 
             pushfirst!(operands, op)
         end
-        taken > to_take && error("could not handle values on stack")
+        taken != to_take && error("could not handle values on stack")
 
         # empty form of inst
         inst, blocks = if inst isa Union{Block,Loop}
