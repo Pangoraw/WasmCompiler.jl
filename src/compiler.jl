@@ -100,12 +100,11 @@ mutable struct CodegenContext
     type_dict::Dict
     func_dict::Dict
     datatype_dict::Dict
-    optimize::Bool
     debug::Bool
     mode::CompilationMode
 end
-CodegenContext(module_=RuntimeModule(); debug=false, optimize=false, mode=length(module_.imports) == 2 ? Malloc : GCProposal) =
-    CodegenContext(module_, zero(Int32), Dict(), Dict(), Dict(), optimize, debug, mode)
+CodegenContext(module_=RuntimeModule(); debug=false, mode=length(module_.imports) == 2 ? Malloc : GCProposal) =
+    CodegenContext(module_, zero(Int32), Dict(), Dict(), Dict(), debug, mode)
 
 function emit_data!(ctx, init)
     off = ctx.mem_offset
@@ -1226,10 +1225,10 @@ function emit_codes(ctx, ir, rt, nargs)
                 continue
             elseif Meta.isexpr(inst, :pop_exception)
                 push!(exprs[bidx],
-                      global_get(jl_exception),
-                      local_set(getlocal!(ssa)),
+                      # global_get(jl_exception),
                       ref_null(jl_value_t),
-                      global_set(jl_exception))
+                      local_set(getlocal!(ssa)))
+                      # global_set(jl_exception))
             elseif Meta.isexpr(inst, :throw_undef_if_not)
                 cond = last(inst.args)
                 emit_val!(exprs[bidx], cond)
@@ -1303,7 +1302,7 @@ function Base.showerror(io::IO, err::CompilationError)
     print(io, ": ", err.msg)
 end
 
-emit_func(f, types; optimize=false, debug=false) = emit_func!(CodegenContext(; optimize, debug), f, types)
+emit_func(f, types; debug=false) = emit_func!(CodegenContext(; debug), f, types)
 emit_func!(mod::WModule, f, types; kwargs...) = emit_func!(CodegenContext(mod; kwargs...), f, types)
 emit_func!(ctx, f, types) = emit_func!(ctx, Tuple{Core.Typeof(f), types.parameters...})
 
@@ -1372,14 +1371,6 @@ function emit_func!(ctx, types)
         expr,
     )
 
-    # _printwasm(stdout, f)
-
-    f = if ctx.optimize
-        optimize_func!(f)
-    else
-        f
-    end
-
     if isempty(ctx.mod.mems) && !any(imp -> imp isa MemImport, ctx.mod.imports)
         has_mem_inst = false
         foreach(f) do inst
@@ -1404,23 +1395,3 @@ function emit_func!(ctx, types)
     f
 end
 
-function optimize!(mod)
-    foreach(optimize_func!, mod.funcs)
-    remove_start_if_empty!(mod)
-    remove_unused_functions!(mod)
-    remove_unused_globals!(mod)
-    mod
-end
-function optimize_func!(f)
-    f |>
-        make_tees! |>
-        remove_unused! |>
-        sort_locals! |>
-        remove_nops! |>
-        merge_blocks! |>
-        remove_useless_branches! |>
-        collapse_branches! |>
-        merge_blocks! |>
-        remove_return! |>
-        leak_ifs!
-end

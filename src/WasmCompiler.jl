@@ -81,16 +81,19 @@ macro code_wasm(exprs...)
                 WasmCompiler.WModule()
             num_funcs = length(module_.funcs)
             WasmCompiler.emit_func!(module_, $f, types;
-                                    optimize=$optimize !== false,
                                     debug=$(debug),
                                     mode=$(wmod) === :malloc ? $(WasmCompiler.Malloc) :
                                                                $(WasmCompiler.GCProposal))
             if applicable(nameof, $f)
                 WasmCompiler.export!(module_, string(nameof($f)), num_funcs + 1)
             end
-            if $(esc(optimize)) === true
-                module_ = WasmCompiler.optimize!(module_)
-            elseif $(esc(optimize)) === :binaryen
+
+            if $(esc(optimize)) !== false
+                lvl = !($(esc(optimize)) isa Int) ? 1 : $(esc(optimize))
+                module_ = WasmCompiler.optimize!(module_, lvl)
+            end
+
+            if $(esc(optimize)) === :binaryen
                 module_ = WasmCompiler.optimize(module_; debug=$debug)
             end
             Wat(module_, $(print_sexpr))
@@ -98,7 +101,10 @@ macro code_wasm(exprs...)
     else
         quote
             types = Tuple{map(Core.Typeof, $(args))...}
-            func = WasmCompiler.emit_func($f, types; optimize=$optimize !== false, debug=$debug)
+            func = WasmCompiler.emit_func($f, types; debug=$debug)
+            if $(esc(optimize)) !== false
+                WasmCompiler.optimize_func!(func, $(esc(optimize)) === true ? 1 : $(esc(optimize)))
+            end
             Wat(func, $(print_sexpr))
         end
     end

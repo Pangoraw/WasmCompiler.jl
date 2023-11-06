@@ -179,7 +179,8 @@ function get_function_type(wmod, funcidx)
     wmod.funcs[funcidx].fntype
 end
 
-export!(mod, name, index) = push!(mod.exports, FuncExport(name, count(imp -> imp isa FuncImport, mod.imports) + index))
+export!(mod, name, index) =
+    push!(mod.exports, FuncExport(name, count(imp -> imp isa FuncImport, mod.imports) + index))
 
 function make_bootstrap()
     bootstrap_file = joinpath(@__DIR__, "..", "bootstrap.wast") |> normpath

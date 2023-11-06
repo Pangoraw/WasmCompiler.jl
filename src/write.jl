@@ -439,7 +439,7 @@ function wwrite(io::IO, wmod::WModule)
     fntypes = copy(wmod.types)
     fntypes = union!(fntypes, unique(map(f -> f.fntype, wmod.funcs)))
     for imp in wmod.imports
-        imp isa FuncImport || continue
+        (imp isa FuncImport || imp isa TagImport) || continue
         if isnothing(findfirst(==(imp.fntype), fntypes))
             push!(fntypes, imp.fntype)
         end

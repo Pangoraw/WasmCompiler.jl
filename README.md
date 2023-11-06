@@ -57,6 +57,20 @@ julia> @code_wasm mod=true sexpr=true optimize=true relu(1f0) # Use sexpr=true t
       (local.get 1))
   )
   (export "relu" (func $relu)))
+
+julia> # with an extra optimizer effort we can move the cond local
+       @code_wasm optimize=2 sexpr=true relu(1f0)
+(module
+  (func $relu (param f32) (result f32)
+    (select
+      (f32.const 0.0)
+      (local.get 0)
+      (f32.lt
+        (local.get 0)
+        (f32.const 0.0)))
+  )
+  (export "relu" (func $relu))
+)
 ```
 
 ## References

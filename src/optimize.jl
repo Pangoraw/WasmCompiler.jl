@@ -562,3 +562,33 @@ function remove_unused_globals!(wmod; remove_imports=true)
 
     wmod
 end
+
+function optimize!(mod, lvl=0)
+    for func in mod.funcs
+        lvl > 0 && optimize_func!(func, lvl)
+        lvl > 1 && inline_ssa_values!(mod, func)
+        lvl > 1 && optimize_func!(func, lvl)
+    end
+    if lvl > 0
+        remove_start_if_empty!(mod)
+        remove_unused_functions!(mod)
+        remove_unused_globals!(mod)
+    end
+    mod
+end
+function optimize_func!(f, lvl=0)
+    f
+    if lvl > 0
+        make_tees!(f)
+        remove_unused!(f)
+        sort_locals!(f)
+        remove_nops!(f)
+        merge_blocks!(f)
+        remove_useless_branches!(f)
+        collapse_branches!(f)
+        merge_blocks!(f)
+        remove_return!(f)
+        leak_ifs!(f)
+    end
+    f
+end
