@@ -550,9 +550,7 @@ function _printwasm(io::IO, instop::InstOperands)
     indent = get(io, :indent, INDENT_INC)
     print(io, INDENT_S^indent, '(')
     if instop.inst isa Union{Block,Loop}
-        wmod = get(io, :mod, nothing)
-        func = get(io, :func, nothing)
-        instops = sexpr(wmod, func, instop.inst.inst)
+        instops = only(instop.blocks)
         _printkw(io, instop.inst isa Block ? "block" : "loop")
         _printwasm(io, instop.inst.fntype)
         ctx = IOContext(io, :indent => indent + INDENT_INC)
@@ -576,10 +574,7 @@ function _printwasm(io::IO, instop::InstOperands)
 
     # end
     if instop.inst isa If
-        wmod = get(io, :mod, nothing)
-        func = get(io, :func, nothing)
-        trueinstops = sexpr(wmod, func, instop.inst.trueinst)
-        falseinstops = sexpr(wmod, func, instop.inst.falseinst)
+        trueinstops, falseinstops = instop.blocks
         _printkw(io, "if")
         if instop.inst.fntype != voidtype
             _printwasm(io, instop.inst.fntype)
