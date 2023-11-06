@@ -348,7 +348,7 @@ function _printwasm(io::IO, fntype::FuncType)
         end
 
         if !isempty(fntype.results)
-          isempty(fntype.params) || print(io, ' ');
+          print(io, ' ');
           print(io, '(')
           _printkw(io, "result")
           for result in fntype.results
@@ -465,7 +465,7 @@ _printwasm(io::IO, g::global_get) = (_printinst(io, "global.get"); print(io, ' '
 _printwasm(io::IO, g::global_set) = (_printinst(io, "global.set"); print(io, ' '); print_globalidx(io, g.n))
 _printwasm(io::IO, ::return_) = _printinst(io, "return")
 _printwasm(io::IO, t::throw_) = (_printinst(io, "throw"); print(io, ' '); print_tagidx(io, t.tag))
-_printwasm(io::IO, rt::rethrow_) = (_printinst(io, "rethrow"); print(io, " ", rt.label))
+_printwasm(io::IO, rt::rethrow_) = _printinst(io, "rethrow")
 function _printwasm(io::IO, s::string_const)
     _printinst(io, "string.const");
     sidx = s.stringidx
@@ -561,18 +561,41 @@ function _printwasm(io::IO, instop::InstOperands)
         print(io, ')')
         return
     end
-    # if instop.inst isa Try
-    #     wmod = get(io, :mod, nothing)
-    #     func = get(io, :func, nothing)
-    #     instops = sexpr(wmod, func, instop.inst.inst)
-    #     _printkw(io, "try")
-    #     if instop.inst.fntype != voidtype
-    #         _printwasm(io, instop.inst.fntype)
-    #     end
-    #     println(io)
-    #     ctx = IOContext(io, :indent => indent + INDENT_INC)
-
-    # end
+    if instop.inst isa Try
+        wmod = get(io, :mod, nothing)
+        func = get(io, :func, nothing)
+        instops = sexpr(wmod, func, instop.inst.inst)
+        _printkw(io, "try")
+        if instop.inst.fntype != voidtype
+            _printwasm(io, instop.inst.fntype)
+        end
+        println(io)
+        ctx = IOContext(io, :indent => indent + 2INDENT_INC)
+        print(ctx, INDENT_S ^ (indent + INDENT_INC), '(')
+        _printkw(io, "do")
+        for op in sexpr(wmod, func, instop.inst.inst)
+            println(io)
+            _printwasm(ctx, op)
+        end
+        print(io, ')')
+        for c in instop.inst.catches
+            cinstop = sexpr(wmod, func, c.inst)
+            println(io)
+            print(ctx, INDENT_S ^ (indent + INDENT_INC), "(")
+            _printkw(io, "catch")
+            if !isnothing(c.tag)
+                print(io, ' ')
+                print_tagidx(ctx, c.tag)
+            end
+            for cop in cinstop
+                println(io)
+                _printwasm(ctx, cop)
+            end
+            print(io, ')')
+        end
+        print(io, "))")
+        return
+    end
     if instop.inst isa If
         trueinstops, falseinstops = instop.blocks
         _printkw(io, "if")

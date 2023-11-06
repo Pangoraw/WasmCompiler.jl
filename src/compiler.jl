@@ -371,7 +371,7 @@ function emit_codes(ctx, ir, rt, nargs)
                 emit_data!(ctx, bytes)
                 push!(expr, i32_const(off))
             elseif ctx.mode == GCProposal
-                push!(expr, string_const(val), call(jl_string))
+                push!(expr, emit_string!(ctx, val), call(jl_string))
             else
                 throw(CompilationError(types, "cannot create String with mode $(ctx.mode)"))
             end
@@ -1053,6 +1053,11 @@ function emit_codes(ctx, ir, rt, nargs)
                               throw_(jl_exception_tag))
                     end
                     continue
+                elseif f === Base.rethrow
+                    # We cannot use throw here since rethrow can be called from a 
+                    # function called inside the catch block. We throw instead.
+                    push!(exprs[bidx], throw_(jl_exception_tag))
+                    continue
                 end
 
                 # NOTE: Hack to implement memory backed arrays
@@ -1222,7 +1227,9 @@ function emit_codes(ctx, ir, rt, nargs)
             elseif Meta.isexpr(inst, :pop_exception)
                 push!(exprs[bidx],
                       global_get(jl_exception),
-                      local_set(getlocal!(ssa)))
+                      local_set(getlocal!(ssa)),
+                      ref_null(jl_value_t),
+                      global_set(jl_exception))
             elseif Meta.isexpr(inst, :throw_undef_if_not)
                 cond = last(inst.args)
                 emit_val!(exprs[bidx], cond)

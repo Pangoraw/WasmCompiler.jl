@@ -94,6 +94,7 @@ struct FuncType <: WasmType
     results::Vector{ValType}
 end
 
+Base.copy(fntype::FuncType) = FuncType(copy(fntype.params), copy(fntype.results))
 Base.:(==)(fntype1::FuncType, fntype2::FuncType) =
     fntype1.params == fntype2.params && fntype1.results == fntype2.results
 

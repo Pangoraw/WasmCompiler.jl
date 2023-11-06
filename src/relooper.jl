@@ -193,12 +193,15 @@ function nestwithin!(relooper::Relooper, bidx, mergenodes)
             cblock = getcatchblock(relooper, bidx)
             tblock = setdiff(relooper.cfg.blocks[bidx].succs, cblock) |> only
             push!(relooper.context, -1)
-            push!(relooper.exprs[bidx],
-                Try(FuncType([], []),
-                    Inst[dobranch(relooper, bidx, tblock)],
-                    [CatchBlock(nothing, Inst[dobranch(relooper, bidx, cblock)])],
-                ),
+
+            try_code = dobranch(relooper, bidx, tblock)
+            catch_code = dobranch(relooper, bidx, cblock)
+
+            try_inst = Try(FuncType([], []),
+                Inst[try_code],
+                [CatchBlock(nothing, Inst[catch_code])],
             )
+            push!(relooper.exprs[bidx], try_inst)
             @assert -1 == pop!(relooper.context)
             return relooper.exprs[bidx]
         end
@@ -275,7 +278,7 @@ end
 reloop!(relooper::Relooper) = donode!(relooper, 1)
 
 """
-    reloop(exprs::Vector{Vector{Inst}}, ir::IRCode)::Vector{Inst}
+    reloop(exprs::Vector{}, ir::IRCode)::Vector{Inst}
 
 Consumes the given expressions (one for each block in `ir.cfg.blocks`) and return_
 a single expression list which contains the WebAssembly structured control flow constructs

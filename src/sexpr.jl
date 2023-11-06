@@ -10,7 +10,8 @@ takes(_, _, _, ::Union{ref_as_non_null}) = 1
 takes(_, _, _, ::memory_copy) = 3
 takes(_, _, _, ::BinaryInst) = 2
 takes(_, _, _, ::v128cmp) = 2
-takes(_, _, ctx, b::Union{br,br_table,br_if}) = length(ctx[end-b.label].params)
+takes(_, _, ctx, b::Union{br,br_table}) = length(ctx[end-b.label].params)
+takes(_, _, ctx, b::br_if) = 1 + length(ctx[end-b.label].params)
 takes(wmod, _, _, ::array_new) = 2 # elty, length
 takes(wmod, _, _, sn::struct_new) = length(_find_type(wmod, sn.typeidx).fields)
 function takes(wmod, _, _, (; tag)::throw_)
@@ -75,16 +76,16 @@ function sexpr!(wmod, func, expr::Vector{Inst}, ctx)
         inst, blocks = if inst isa Union{Block,Loop}
             push!(ctx, inst.fntype)
             T = typeof(inst)
-            inst, blocks = T(copy(inst.fntype), Inst[]), [sexpr(wmod, func, inst.inst)]
-            pop!(ctx, inst.fntype)
+            inst, blocks = T(copy(inst.fntype), Inst[]), [sexpr(wmod, func, inst.inst, ctx)]
+            pop!(ctx)
             inst, blocks
         elseif inst isa If
             push!(ctx, inst.fntype)
             inst, blocks = (
                 If(copy(inst.fntype), Inst[], Inst[]), 
-                Vector{InstOperands}[sexpr(wmod, func, inst.trueinst), sexpr(wmod, func, inst.falseinst)],
+                Vector{InstOperands}[sexpr(wmod, func, inst.trueinst, ctx), sexpr(wmod, func, inst.falseinst, ctx)],
             )
-            pop!(ctx, inst.fntype)
+            pop!(ctx)
             inst, blocks
         else
             inst, Vector{InstOperands}[]
