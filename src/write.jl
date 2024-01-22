@@ -362,8 +362,8 @@ end
 wwrite(io::IO, td::TryDelegate) = wwrite(io, 0x06, td.inst, 0x18, UInt32(td.label))
 
 function wwrite(io::IO, tt::TryTable)
-    n = wwrite(io, 0x1f, tt.fntype, UInt32(n_handlers))
     n_handlers = length(tt.handlers) + tt.catch_all !== nothing + tt.catch_all_ref !== nothing
+    n = wwrite(io, 0x1f, tt.fntype, UInt32(n_handlers))
     for h in tt.handlers
         n += wwrite(io, h.ref ? 0x01 : 0x00, h.tag - one(UInt32), h.label - one(UInt32))
     end
