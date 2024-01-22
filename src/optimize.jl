@@ -129,6 +129,10 @@ function _explore_blocks!(expr, stack)
 
         if inst isa Branch
             stack[end-inst.label] += 1
+        elseif inst isa TryTable
+            # Prevent optimization
+            stack .+= 1
+            _explore_blocks!(inst.inst, stack)
         elseif inst isa Loop 
             push!(stack, 0)
             _explore_blocks!(inst.inst, stack)
@@ -378,7 +382,7 @@ collapse_branches!(f::Func) = (_collapse_branches!(f.inst); f)
 
 function _collapse_branches!(expr)
     for (i, inst) in enumerate(expr)
-        if inst isa Block || inst isa Loop || inst isa TryDelegate
+        if inst isa Block || inst isa Loop || inst isa TryDelegate || inst isa TryTable
             _collapse_branches!(inst.inst)
             continue
         elseif inst isa Try

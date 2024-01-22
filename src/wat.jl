@@ -720,6 +720,41 @@ function _printwasm(io::IO, i::If)
     _printkw(io, "end")
 end
 
+function _printwasm(io::IO, try_::TryTable)
+    indent = get(io, :indent, INDENT_INC)
+    print(io, INDENT_S^indent)
+    _printkw(io, "try_table")
+    _printwasm(io, try_.fntype)
+
+    n_handlers = length(try_.handlers) + (try_.catch_all !== nothing) + (try_.catch_all_ref !== nothing)
+
+    for h in try_.handlers
+        print(io, " (")
+        _printkw(io, h.ref ? "catch_ref" : "catch")
+        print(io, " ", h.tag - 1, " ", h.label - 1, ")")
+    end
+
+    if try_.catch_all !== nothing
+        print(io, " (")
+        _printkw(io, "catch_all")
+        print(io, " ", try_.catch_all, ")")
+    end
+
+    if try_.catch_all_ref !== nothing
+        print(io, " (")
+        _printkw(io, "catch_all_ref")
+        print(io, " ", try_.catch_all, ")")
+    end
+    println(io)
+
+    ctx = IOContext(io, :indent => indent + INDENT_INC)
+    _printwasm(ctx, try_.inst)
+
+    println(io)
+    print(io, INDENT_S^indent)
+    _printkw(io, "end")
+end
+
 function _printwasm(io::IO, try_::Try)
     indent = get(io, :indent, INDENT_INC)
     print(io, INDENT_S^indent)
