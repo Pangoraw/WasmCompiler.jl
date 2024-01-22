@@ -429,12 +429,28 @@ struct br_on_cast <: Inst
     casttype::Index
 end
 
+struct TryTableEntry
+    tag::Index
+    label::Index
+    ref::Bool
+end
+TryTableEntry(tag, label) = TryTableEntry(tag, label, false)
+
+struct try_table <: Inst
+    handlers::Vector{TryTableEntry}
+    catch_all::Union{Nothing,Index}
+    catch_all_ref::Union{Nothing,Index}
+end
+
 # Those are not keywords but still
 struct throw_ <: Inst
     tag::Tag
 end
 struct rethrow_ <: Inst
     label::Index
+end
+struct throw_ref <: Inst
+    tag::Tag
 end
 
 struct return_ <: TerminatorInst end

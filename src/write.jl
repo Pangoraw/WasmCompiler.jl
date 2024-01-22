@@ -361,8 +361,24 @@ function wwrite(io::IO, try_::Try)
 end
 wwrite(io::IO, td::TryDelegate) = wwrite(io, 0x06, td.inst, 0x18, UInt32(td.label))
 
+function wwrite(io::IO, tt::try_table)
+    n_handlers = length(tt.handlers) + tt.catch_all !== nothing + tt.catch_all_ref !== nothing
+    n = wwrite(io, 0x1f, UInt32(n_handlers))
+    for h in tt.handlers
+        n += wwrite(io, h.ref ? 0x01 : 0x00, h.tag - one(UInt32), h.label - one(UInt32))
+    end
+    if tt.catch_all !== nothing
+        n += wwrite(io, 0x02, tt.catch_all - one(UInt32))
+    end
+    if tt.catch_all_ref !== nothing
+        n += wwrite(io, 0x03, tt.catch_all_ref - one(UInt32))
+    end
+    n
+end
+
 wwrite(io::IO, t::throw_) = wwrite(io, 0x08, t.tag - one(UInt32))
 wwrite(io::IO, ::rethrow_) = wwrite(io, 0x09, UInt32(4))
+wwrite(io::IO, t::throw_ref) = wwrite(io, 0x0a, t.tag - one(UInt32))
 wwrite(io::IO, b::br) = wwrite(io, 0x0c, b.label)
 wwrite(io::IO, b::br_if) = wwrite(io, 0x0d, b.label)
 

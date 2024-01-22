@@ -212,13 +212,38 @@ function read_inst(io::IO)
     elseif tag == 0x08
         return throw_(one(Index) + LEB128.decode(io, UInt32))
     elseif tag == 0x09
-        return rethrow_(LEB128.decode(io, UInt32))
+        return rethrow_(one(Index) + LEB128.decode(io, UInt32))
+    elseif tag == 0x0a
+        return throw_ref(one(Index) + LEB128.decode(io, UInt32))
     elseif tag == 0x0C
         return br(LEB128.decode(io, UInt32))
     elseif tag == 0x0d
         return br_if(LEB128.decode(io, UInt32))
     elseif tag == 0x10
         return call(one(Index) + LEB128.decode(io, UInt32))
+    elseif tag == 0x1f
+        n_handlers = LEB128.decode(io, UInt32)
+        handlers = Vector{TryTableEntry}()
+        catch_all = nothing
+        catch_all_ref = nothing
+        for _ in 1:n_handlers
+            tag = read(io, UInt8)
+            if tag == 0x00 || tag == 0x01
+                tag, label = LEB128.decode(io, UInt32), LEB128.decode(io, UInt32)
+                push!(handlers, TryTableEntry(tag + one(UInt32), label + one(UInt32), tag == 0x01))
+            elseif tag == 0x02
+                @assert catch_all === nothing "multiple catch_all blocks"
+                catch_all = LEB128.decode(io, UInt32) + one(UInt32)
+            elseif tag == 0x03
+                @assert catch_all_ref === nothing "multiple catch_all_ref blocks"
+                catch_all_ref = LEB128.decode(io, UInt32) + one(UInt32)
+            else
+                tag = "0x" * string(tag; base=16)
+                throw("unknown try_table handler $tag")
+            end
+        end
+        @assert n_handlers == length(handlers) + catch_all !== nothing + catch_all_ref !== nothing
+        return try_table(handlers, catch_all, catch_all_ref)
     elseif tag == 0x20
         return local_get(one(Index) + LEB128.decode(io, UInt32))
     elseif tag == 0x21
