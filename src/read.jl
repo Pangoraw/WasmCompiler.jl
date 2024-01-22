@@ -246,7 +246,7 @@ function read_inst(io::IO)
         end
         inst = Vector{Inst}()
         read_inst_list!(io, inst)
-        @assert n_handlers == length(handlers) + catch_all !== nothing + catch_all_ref !== nothing
+        @assert n_handlers == length(handlers) + (catch_all !== nothing) + (catch_all_ref !== nothing)
         return TryTable(fntype, inst, handlers, catch_all, catch_all_ref)
     elseif tag == 0x20
         return local_get(one(Index) + LEB128.decode(io, UInt32))
