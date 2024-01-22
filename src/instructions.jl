@@ -127,6 +127,22 @@ end
 
 const Tag = UInt32
 
+struct TryTableHandler
+    tag::Tag
+    label::Index
+    ref::Bool
+end
+TryTableHandler(tag, label) = TryTableHandler(tag, label, false)
+
+struct TryTable <: ContainerInst
+    fntype::FuncType
+    inst::Vector{Inst}
+
+    handlers::Vector{TryTableHandler}
+    catch_all::Union{Nothing,Index}
+    catch_all_ref::Union{Nothing,Index}
+end
+
 struct CatchBlock
     tag::Union{Nothing,Tag} # use nothing for catch_all
     inst::Vector{Inst}
@@ -427,19 +443,6 @@ struct br_on_cast <: Inst
     label::Index
     inputtype::Index
     casttype::Index
-end
-
-struct TryTableEntry
-    tag::Index
-    label::Index
-    ref::Bool
-end
-TryTableEntry(tag, label) = TryTableEntry(tag, label, false)
-
-struct try_table <: Inst
-    handlers::Vector{TryTableEntry}
-    catch_all::Union{Nothing,Index}
-    catch_all_ref::Union{Nothing,Index}
 end
 
 # Those are not keywords but still

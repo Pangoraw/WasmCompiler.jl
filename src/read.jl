@@ -222,15 +222,17 @@ function read_inst(io::IO)
     elseif tag == 0x10
         return call(one(Index) + LEB128.decode(io, UInt32))
     elseif tag == 0x1f
+        fntype = read_block_type(io)
+
         n_handlers = LEB128.decode(io, UInt32)
-        handlers = Vector{TryTableEntry}()
+        handlers = Vector{TryTableHandler}()
         catch_all = nothing
         catch_all_ref = nothing
         for _ in 1:n_handlers
             tag = read(io, UInt8)
             if tag == 0x00 || tag == 0x01
                 tag, label = LEB128.decode(io, UInt32), LEB128.decode(io, UInt32)
-                push!(handlers, TryTableEntry(tag + one(UInt32), label + one(UInt32), tag == 0x01))
+                push!(handlers, TryTableHandler(tag + one(UInt32), label + one(UInt32), tag == 0x01))
             elseif tag == 0x02
                 @assert catch_all === nothing "multiple catch_all blocks"
                 catch_all = LEB128.decode(io, UInt32) + one(UInt32)
@@ -242,8 +244,10 @@ function read_inst(io::IO)
                 throw("unknown try_table handler $tag")
             end
         end
+        inst = Vector{Inst}()
+        read_inst_list!(io, inst)
         @assert n_handlers == length(handlers) + catch_all !== nothing + catch_all_ref !== nothing
-        return try_table(handlers, catch_all, catch_all_ref)
+        return TryTable(fntype, inst, handlers, catch_all, catch_all_ref)
     elseif tag == 0x20
         return local_get(one(Index) + LEB128.decode(io, UInt32))
     elseif tag == 0x21

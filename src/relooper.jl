@@ -197,10 +197,16 @@ function nestwithin!(relooper::Relooper, bidx, mergenodes)
             try_code = dobranch(relooper, bidx, tblock)
             catch_code = dobranch(relooper, bidx, cblock)
 
-            try_inst = Try(FuncType([], []),
-                Inst[try_code],
-                [CatchBlock(nothing, Inst[catch_code])],
-            )
+            # try_inst = Try(FuncType([], []),
+            #     Inst[try_code],
+            #     [CatchBlock(nothing, Inst[catch_code])],
+            # )
+
+            try_inst = Block(FuncType([], []), Inst[
+                TryTable(FuncType([], []), Inst[try_code, br(1)], TryTableHandler[], 0, nothing),
+                Block(FuncType([], []), Inst[catch_code])
+            ])
+
             push!(relooper.exprs[bidx], try_inst)
             @assert -1 == pop!(relooper.context)
             return relooper.exprs[bidx]
