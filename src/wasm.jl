@@ -212,7 +212,7 @@ end
 
 ## Utilities
 
-function Base.map!(f, cont::Union{Func,Block,Loop,TryDelegate})
+function Base.map!(f, cont::Union{Func,Block,Loop,TryDelegate,TryTable})
     map!(cont.inst, cont.inst) do inst
         if inst isa ContainerInst
             v = f(inst)
@@ -269,7 +269,7 @@ function Base.map!(f, if_::If)
     if_
 end
 
-function Base.foreach(f, cont::Union{Func,Block,Loop})
+function Base.foreach(f, cont::Union{Func,Block,Loop,TryTable})
     for inst in cont.inst
         if inst isa ContainerInst
             f(inst)
@@ -319,7 +319,7 @@ function Base.foreach(f, if_::If)
     end
 end
 
-function Base.filter!(f, cont::Union{Func,Block,Loop,TryDelegate})
+function Base.filter!(f, cont::Union{Func,Block,Loop,TryDelegate,TryTable})
     filter!(cont.inst) do inst
         if inst isa ContainerInst
             v = f(inst)
