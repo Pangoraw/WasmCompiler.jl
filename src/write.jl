@@ -447,7 +447,7 @@ function wwrite(io::IO, glob::Global)
 end
 
 wwrite(path::String, wmod::WModule) = open(io -> wwrite(io, wmod), path, "w")
-function wwrite(io::IO, wmod::WModule)
+function wwrite(io::IO, wmod::WModule; names=true, producers=true)
     n = write(io, MAGIC)
     n += write(io, WASM_VERSION)
 
@@ -630,58 +630,62 @@ function wwrite(io::IO, wmod::WModule)
     end
 
     # 0. Name Section
-    sio = IOBuffer()
-    wwrite(sio, "name")
+    if names
+        sio = IOBuffer()
+        wwrite(sio, "name")
 
-    # 0.0 Module Name
-    # ...
-    # 0.1 Functions Name
-    ssio = IOBuffer()
-    named_functions = filter(((_, f),) -> !isnothing(f.name), collect(enumerate(wmod.funcs)))
-    n_imported = count(imp -> imp isa FuncImport, wmod.imports)
-    wwrite(ssio, UInt32(length(named_functions)))
-    for (i, f) in named_functions
-        wwrite(ssio, Index(n_imported + i - 1), UInt32(sizeof(f.name)))
-        write(ssio, f.name)
-    end
-    buf = take!(ssio)
-    wwrite(sio, 0x01, buf)
-    # 0.2 Locals Name
-    # ...
-    # 0.4 Type names
-    ssio = IOBuffer()
-    named_types = filter(((_,ty),) -> ty isa StructType && !isnothing(ty.name), collect(enumerate(fntypes)))
-    wwrite(ssio, UInt32(length(named_types)))
-    for (i, ty) in named_types
-        wwrite(ssio, Index(i - 1), UInt32(sizeof(ty.name)))
-        write(ssio, ty.name)
-    end
-    buf = take!(ssio)
-    wwrite(sio, 0x04, buf)
+        # 0.0 Module Name
+        # ...
+        # 0.1 Functions Name
+        ssio = IOBuffer()
+        named_functions = filter(((_, f),) -> !isnothing(f.name), collect(enumerate(wmod.funcs)))
+        n_imported = count(imp -> imp isa FuncImport, wmod.imports)
+        wwrite(ssio, UInt32(length(named_functions)))
+        for (i, f) in named_functions
+            wwrite(ssio, Index(n_imported + i - 1), UInt32(sizeof(f.name)))
+            write(ssio, f.name)
+        end
+        buf = take!(ssio)
+        wwrite(sio, 0x01, buf)
+        # 0.2 Locals Name
+        # ...
+        # 0.4 Type names
+        ssio = IOBuffer()
+        named_types = filter(((_,ty),) -> ty isa StructType && !isnothing(ty.name), collect(enumerate(fntypes)))
+        wwrite(ssio, UInt32(length(named_types)))
+        for (i, ty) in named_types
+            wwrite(ssio, Index(i - 1), UInt32(sizeof(ty.name)))
+            write(ssio, ty.name)
+        end
+        buf = take!(ssio)
+        wwrite(sio, 0x04, buf)
 
-    buf = take!(sio)
-    n += wwrite(io, 0x00, buf)
+        buf = take!(sio)
+        n += wwrite(io, 0x00, buf)
+    end
 
     # 0. Producers Section
-    sio = IOBuffer()
-    wwrite(sio, "producers")
+    if producers
+        sio = IOBuffer()
+        wwrite(sio, "producers")
 
-    language_name = "julia"
-    language_version = string(VERSION)
-    tool_name = string(nameof(@__MODULE__)) * ".jl"
-    tool_version = "v0.1.0"
+        language_name = "julia"
+        language_version = string(VERSION)
+        tool_name = string(nameof(@__MODULE__)) * ".jl"
+        tool_version = "v0.1.0"
 
-    wwrite(sio, UInt32(2))
-    wwrite(sio, "language", UInt32(1), language_name, language_version)
-    wwrite(sio, "processed-by", UInt32(1), tool_name, tool_version)
+        wwrite(sio, UInt32(2))
+        wwrite(sio, "language", UInt32(1), language_name, language_version)
+        wwrite(sio, "processed-by", UInt32(1), tool_name, tool_version)
 
-    buf = take!(sio)
-    n += wwrite(io, 0x00, UInt32(length(buf)))
-    n += write(io, buf)
+        buf = take!(sio)
+        n += wwrite(io, 0x00, UInt32(length(buf)))
+        n += write(io, buf)
+    end
 end
 
-function wasm(wmod)
+function wasm(wmod; names=true, producers=true)
     io = IOBuffer()
-    wwrite(io, wmod)
+    wwrite(io, wmod; names, producers)
     take!(io)
 end

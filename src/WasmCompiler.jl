@@ -10,6 +10,7 @@ include("./wat.jl")
 include("./write.jl")
 include("./read.jl")
 include("./optimize.jl")
+include("./validate.jl")
 
 struct Wat
     obj::Any

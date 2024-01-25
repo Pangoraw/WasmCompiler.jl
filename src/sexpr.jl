@@ -25,7 +25,7 @@ function takes(wmod, _, _, (; tag)::throw_)
     # length(wmod.tags[tag].fntype.params)
 end
 takes(wmod, _, _, c::call) = length(get_function_type(wmod, c.func).params)
-takes(_, _, _, block::Union{Block,Loop,Try}) = length(block.fntype.params)
+takes(_, _, _, block::Union{Block,Loop,Try,TryTable}) = length(block.fntype.params)
 takes(_, _, _, if_::If) = length(if_.fntype.params) + 1
 takes(_, func, _, ::return_) = length(func.fntype.results)
 takes(_, _, _, ::select) = 3
@@ -34,7 +34,7 @@ produces(_, _, ::Union{unreachable,drop,nop,local_set,global_set,return_}) = 0
 produces(_, _, ::Union{i32_store,i64_store,f32_store,f64_store}) = 0
 produces(_, _, inst::Inst) = 1
 produces(wmod, _, c::call) = length(get_function_type(wmod, c.func).results)
-produces(_, _, block::Union{If,Loop,Block}) = length(block.fntype.results)
+produces(_, _, block::Union{If,Loop,Block,TryTable}) = length(block.fntype.results)
 
 """
     InstOperands(::Inst, operands::Vector{InstOperands})
@@ -78,6 +78,12 @@ function sexpr!(wmod, func, expr::Vector{Inst}, ctx)
             push!(ctx, inst.fntype)
             T = typeof(inst)
             inst, blocks = T(copy(inst.fntype), Inst[]), [sexpr(wmod, func, inst.inst, ctx)]
+            pop!(ctx)
+            inst, blocks
+        elseif inst isa TryTable
+            push!(ctx, inst.fntype)
+            T = typeof(inst)
+            inst, blocks = T(copy(inst.fntype), Inst[], inst.handlers, inst.catch_all, inst.catch_all_ref), [sexpr(wmod, func, inst.inst, ctx)]
             pop!(ctx)
             inst, blocks
         elseif inst isa If

@@ -198,12 +198,21 @@ for (WT, T) in zip((f32, f64), (Float32, Float64))
     @eval $store_s() = $store_s(MemArg())
 
     for f in ("abs", "neg", "sqrt", "ceil", "floor", "trunc", "nearest")
-        @eval struct $(Symbol(WT, "_", f)) <: UnaryInst end
+        inst = Symbol(WT, "_", f)
+        @eval struct $(inst) <: UnaryInst end
+        @eval inst_func_type(_, ::$(inst)) = FuncType([$WT], [$WT])
     end
 
-    for f in ("add", "sub", "mul", "div", "min", "max", "copysign",
-        "eq", "ne", "lt", "gt", "le", "ge")
-        @eval struct $(Symbol(WT, "_", f)) <: BinaryInst end
+    for f in ("add", "sub", "mul", "div", "min", "max", "copysign")
+        inst = Symbol(WT, "_", f)
+        @eval struct $(inst) <: BinaryInst end
+        @eval inst_func_type(_, ::$(inst)) = FuncType([$WT, $WT], [$WT])
+    end
+
+    for f in ("eq", "ne", "lt", "gt", "le", "ge")
+        inst = Symbol(WT, "_", f)
+        @eval struct $(inst) <: BinaryInst end
+        @eval inst_func_type(_, ::$(inst)) = FuncType([$WT, $WT], [i32])
     end
 end
 
@@ -225,14 +234,22 @@ for (WT, T) in zip((i32, i64), (Int32, Int64))
     @eval $store_s() = $store_s(MemArg())
 
     for f in ("clz", "ctz", "popcnt", "eqz")
-        @eval struct $(Symbol(WT, "_", f)) <: UnaryInst end
+        inst = Symbol(WT, "_", f)
+        @eval struct $(inst) <: UnaryInst end
+        @eval inst_func_type(_, ::$(inst)) = FuncType([$WT], [$WT])
     end
 
     for f in ("add", "sub", "mul", "div_u", "div_s", "rem_u", "rem_s",
-        "and", "or", "xor", "shl", "shr_u", "shr_s", "rotl", "rotr",
-        "eq", "ne", "lt_u", "lt_s", "gt_u", "gt_s", "le_u", "le_s",
-        "ge_u", "ge_s")
-        @eval struct $(Symbol(WT, "_", f)) <: BinaryInst end
+        "and", "or", "xor", "shl", "shr_u", "shr_s", "rotl", "rotr")
+        inst = Symbol(WT, "_", f)
+        @eval struct $(inst) <: BinaryInst end
+        @eval inst_func_type(_, ::$(inst)) = FuncType([$WT, $WT], [$WT])
+    end
+
+    for f in ("eq", "ne", "lt_u", "lt_s", "gt_u", "gt_s", "le_u", "le_s", "ge_u", "ge_s")
+        inst = Symbol(WT, "_", f)
+        @eval struct $(inst) <: BinaryInst end
+        @eval inst_func_type(_, ::$(inst)) = FuncType([$WT, $WT], [i32])
     end
 end
 

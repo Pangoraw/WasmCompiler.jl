@@ -596,6 +596,46 @@ function _printwasm(io::IO, instop::InstOperands)
         print(io, "))")
         return
     end
+    if instop.inst isa TryTable
+        _printkw(io, "try_table")
+        _printwasm(io, instop.inst.fntype)
+
+        n_handlers = length(instop.inst.handlers) + (instop.inst.catch_all !== nothing) + (instop.inst.catch_all_ref !== nothing)
+
+        for h in instop.inst.handlers
+            print(io, " (")
+            _printkw(io, h.ref ? "catch_ref" : "catch")
+            print(io, " ", h.tag - 1, " ", h.label - 1, ")")
+        end
+
+        if instop.inst.catch_all !== nothing
+            print(io, " (")
+            _printkw(io, "catch_all")
+            print(io, " ", instop.inst.catch_all, ")")
+        end
+
+        if instop.inst.catch_all_ref !== nothing
+            print(io, " (")
+            _printkw(io, "catch_all_ref")
+            print(io, " ", instop.inst.catch_all, ")")
+        end
+        println(io)
+
+        ctx = IOContext(io, :indent => indent + 2INDENT_INC)
+        print(ctx, INDENT_S ^ (indent + INDENT_INC), '(')
+        _printkw(io, "do")
+        wmod = get(io, :mod, nothing)
+        func = get(io, :func, nothing)
+
+        instops = only(instop.blocks)
+        for op in instops
+            println(io)
+            _printwasm(ctx, op)
+        end
+
+        print(io, "))")
+        return
+    end
     if instop.inst isa If
         trueinstops, falseinstops = instop.blocks
         _printkw(io, "if")
