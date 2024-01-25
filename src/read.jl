@@ -9,6 +9,14 @@ function resolve_type(types, idx)
     all_types[idx]
 end
 
+function global_type(mod, idx)
+    imported_globals = filter(imp -> imp isa GlobalImport, mod.imports)
+    if idx <= length(imported_globals)
+        imported_globals[idx].type
+    end
+    mod.globals[idx - length(imported_globals)].type
+end
+
 function set_typename!(types, idx, name)
     s = 0
 

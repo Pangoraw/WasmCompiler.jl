@@ -7,7 +7,7 @@ function f_try_catch(x)
 end
 
 @testset "trycatch" begin
-    (; obj) = @code_wasm optimize=false mod=:runtime f_try_catch(-1f0)
+    (; obj) = @code_wasm optimize=:binaryen mod=:runtime f_try_catch(-1f0)
     w = WC.wasm(obj)
 
     p = launch()

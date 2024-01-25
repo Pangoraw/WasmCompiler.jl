@@ -42,6 +42,16 @@ function validate_inst(val, inst)
         return
     end
 
+    if inst isa drop
+        if isempty(val.stack)
+            throw(ValidationError("not enough values to drop"))
+        end
+
+        pop!(val.stack)
+
+        return
+    end
+
     if inst isa select
         if length(val.stack) < 3
             throw(ValidationError("not enough values for select"))
@@ -77,6 +87,10 @@ function validate_inst(val, inst)
 
     if stack_values != fntype.params
         throw(ValidationError("expected $(fntype.params) but got $stack_values on the stack for $inst"))
+    end
+
+    if inst isa global_set && !global_type(mod, inst.n).mut
+        throw(ValidationError("setting value to immutable global $(inst.n)"))
     end
 
     if inst isa If
@@ -150,8 +164,8 @@ inst_func_type(_, ::nop) = FuncType([], [])
 inst_func_type(val, lg::local_get) = FuncType([], [val.func.locals[lg.n]])
 inst_func_type(val, lt::local_tee) = FuncType([val.func.locals[lt.n]], [val.func.locals[lt.n]])
 inst_func_type(val, ls::local_set) = FuncType([val.func.locals[ls.n]], [])
-inst_func_type(val, gg::global_get) = FuncType([], [val.mod.globals[gg.n].type.type])
-inst_func_type(val, gs::global_set) = FuncType([val.mod.globals[gs.n].type.type], [])
+inst_func_type(val, gg::global_get) = FuncType([], [global_type(val.mod, gg.n).type])
+inst_func_type(val, gs::global_set) = FuncType([global_type(val.mod, gs.n).type], [])
 inst_func_type(val, ::return_) = FuncType(copy(val.func.fntype.results), [])
 
 inst_func_type(val, b::br) = val.block_types[end-b.label]
