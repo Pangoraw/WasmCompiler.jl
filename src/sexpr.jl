@@ -1,5 +1,4 @@
 takes(_, _, _, ::Union{i32_const,i64_const,f32_const,f64_const,local_get,global_get,unreachable,string_const,nop,ref_null}) = 0
-takes(_, _, _, ::UnaryInst) = 1
 takes(_, _, _, ::Union{local_set,local_tee,global_set,drop,ref_cast,struct_get,ref_test}) = 1
 takes(_, _, _, ::Union{i32_store,i64_store,f32_store,f64_store,v128_store,struct_set,array_get}) = 2
 takes(_, _, _, ::Union{i32_load, i64_load, f32_load, f64_load,
@@ -7,9 +6,9 @@ takes(_, _, _, ::Union{i32_load, i64_load, f32_load, f64_load,
                        i64_load8_s, i64_load8_u, i64_load16_s, i64_load16_u,
                        i64_load32_s, i64_load32_u,v128_load}) = 1
 takes(_, _, _, ::Union{ref_as_non_null}) = 1
-takes(_, _, _, ::memory_copy) = 3
-takes(_, _, _, ::BinaryInst) = 2
-takes(_, _, _, ::v128cmp) = 2
+takes(
+    mod, func, ctx, inst
+) = length(inst_func_type(FnValidator(mod, func, func.fntype, false, [], ctx), inst).params)
 takes(_, _, ctx, b::Union{br,br_table}) = length(ctx[end-b.label].params)
 takes(_, _, ctx, b::br_if) = 1 + length(ctx[end-b.label].params)
 takes(wmod, _, _, ::array_new) = 2 # elty, length
@@ -30,11 +29,13 @@ takes(_, _, _, if_::If) = length(if_.fntype.params) + 1
 takes(_, func, _, ::return_) = length(func.fntype.results)
 takes(_, _, _, ::select) = 3
 
-produces(_, _, ::Union{unreachable,drop,nop,local_set,global_set,return_}) = 0
-produces(_, _, ::Union{i32_store,i64_store,f32_store,f64_store}) = 0
-produces(_, _, inst::Inst) = 1
-produces(wmod, _, c::call) = length(get_function_type(wmod, c.func).results)
-produces(_, _, block::Union{If,Loop,Block,TryTable}) = length(block.fntype.results)
+produces(
+    mod, func, ctx, inst
+) = length(inst_func_type(FnValidator(mod, func, func.fntype, false, [], ctx), inst).results)
+produces(_, _, _, ::Union{unreachable,drop,nop,local_set,global_set,return_}) = 0
+produces(_, _, _, ::Union{i32_store,i64_store,f32_store,f64_store}) = 0
+produces(wmod, _, _, c::call) = length(get_function_type(wmod, c.func).results)
+produces(_, _, _, block::Union{If,Loop,Block,TryTable}) = length(block.fntype.results)
 
 """
     InstOperands(::Inst, operands::Vector{InstOperands})
@@ -63,7 +64,7 @@ function sexpr!(wmod, func, expr::Vector{Inst}, ctx)
         while taken < to_take
             isempty(out) && error("stack is empty for expr ($(sprint(_printwasm, inst; context=(:mod => wmod, :indent => 0)))) taken $taken/$to_take params")
             op = pop!(out)
-            prod = produces(wmod, func, op.inst)
+            prod = produces(wmod, func, ctx, op.inst)
             if iszero(prod)
                 error("invalid stack order")
             end

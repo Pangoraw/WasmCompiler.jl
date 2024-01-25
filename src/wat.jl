@@ -493,6 +493,8 @@ end
 _printwasm(io::IO, b::v128bitmask) = _printinst(io, string(b.lane, "x", Lanes.count(b.lane), ".bitmask"))
 _printwasm(io::IO, b::v128bin) = _printinst(io, string(b.lane, "x", Lanes.count(b.lane), b.op))
 _printwasm(io::IO, b::v128all_true) = _printinst(io, string(b.lane, "x", Lanes.count(b.lane), ".all_true"))
+_printwasm(io::IO, b::v128splat) = _printinst(io, string(b.lane, "x", Lanes.count(b.lane), ".splat"))
+_printwasm(io::IO, b::v128replace_lane) = (_printinst(io, string(b.lane, "x", Lanes.count(b.lane), ".replace_lane")); print(io, " ", b.id))
 
 _printwasm(io::IO, r::ref_null) = 
     (_printinst(io, "ref.null"); print(io, ' '); print_reftype_type(io, r.ref))

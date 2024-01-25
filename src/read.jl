@@ -335,6 +335,10 @@ function read_inst(io::IO)
             return v128_load(MemArg(LEB128.decode(io, UInt32), LEB128.decode(io, UInt32)))
         elseif tag == 0x0b
             return v128_store(MemArg(LEB128.decode(io, UInt32), LEB128.decode(io,UInt32)))
+        elseif tag == 0x11
+            return i32x4_splat()
+        elseif tag == 0x1c
+            return i32x4_replace_lane(LEB128.decode(io, UInt32))
         elseif tag in 0x23:0x40
             idx = (tag - 0x23) % 10
             op = idx < 2 ?

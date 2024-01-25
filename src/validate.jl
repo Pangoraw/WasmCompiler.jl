@@ -1,8 +1,10 @@
-struct FnValidator
+mutable struct FnValidator
     mod::WModule
     func::Func
 
     fntype::FuncType
+
+    type_unreachable::Bool
     stack::Vector{ValType}
     block_types::Vector{FuncType}
 end
@@ -13,22 +15,30 @@ end
 
 showerror(io::IO, ve::ValidationError) = print(io, ve.msg)
 
+validate(mod) = foreach(fn -> validate_fn(mod, fn), mod.funcs)
+
 function validate_fn(mod::WModule, func::Func)
-    val = FnValidator(mod, func, func.fntype, ValType[], FuncType[])
+    val = FnValidator(mod, func, func.fntype, false, ValType[], FuncType[])
 
     for inst in func.inst
         validate_inst(val, inst)
     end
 
-    @show val.stack
+    if !val.type_unreachable && val.stack != func.fntype.results
+        throw(ValidationError("invalid return value, expected $(func.fntype.results), got $(val.stack)"))
+    end
 end
 
 function validate_inst(val, inst)
+    val.type_unreachable && return
+
     if inst isa unreachable
         if !isempty(val.stack)
-            @show val.stack
             throw(ValidationError("unreachable with values on the stack"))
         end
+
+        val.type_unreachable = true
+
         return
     end
 
@@ -54,10 +64,10 @@ function validate_inst(val, inst)
 
     fntype = inst_func_type(val, inst)
 
-    WC._printwasm(stdout,inst)
-    print(" ")
-    WC._printwasm(stdout, fntype)
-    println(" ", val.stack)
+    # WC._printwasm(stdout, inst)
+    # print(" ")
+    # WC._printwasm(stdout, fntype)
+    # println(" ", val.stack)
 
     if length(val.stack) < length(fntype.params)
         throw(ValidationError("invalid inst $inst"))
@@ -84,7 +94,10 @@ function validate_inst(val, inst)
         if last(val.stack, length(inst.fntype.results)) != inst.fntype.results
             throw(ValidationError("invalid if true branch"))
         end
-        for _ in 1:length(inst.fntype.results) pop!(val.stack) end
+        for _ in 1:length(inst.fntype.results)
+            pop!(val.stack)
+        end
+        val.type_unreachable = false
 
         append!(val.stack, stack_values[begin:end-1])
 
@@ -95,7 +108,10 @@ function validate_inst(val, inst)
         if last(val.stack, length(inst.fntype.results)) != inst.fntype.results
             throw(ValidationError("invalid if false branch"))
         end
-        for _ in 1:length(inst.fntype.results) pop!(val.stack) end
+        for _ in 1:length(inst.fntype.results)
+            pop!(val.stack)
+        end
+        val.type_unreachable = false
 
         pop!(val.block_types)
     end
@@ -112,6 +128,10 @@ function validate_inst(val, inst)
         end
 
         pop!(val.block_types)
+    end
+
+    if val.type_unreachable
+        val.type_unreachable = false
     end
 
     append!(val.stack, fntype.results)
@@ -136,6 +156,29 @@ inst_func_type(val, b::br) = val.block_types[end-b.label]
 function inst_func_type(val, b::br_if)
     bt = val.block_types[end-b.label]
     FuncType([bt.params..., i32], copy(bt.results))
+end
+
+inst_func_type(_, ::i32_store) = FuncType([i32,i32], [])
+inst_func_type(_, ::v128_store) = FuncType([i32,v128], [])
+
+inst_func_type(_, s::v128replace_lane) = if s.lane <= Lanes.i32
+    FuncType([v128,i32], [v128])
+elseif s.lane == Lanes.f32
+    FuncType([v128,f32], [v128])
+elseif s.lane == Lanes.i64
+    FuncType([v128,i64], [v128])
+elseif s.lane == Lanes.f64
+    FuncType([v128,f64], [v128])
+end
+
+inst_func_type(_, s::v128splat) = if s.lane <= Lanes.i32
+    FuncType([i32], [v128])
+elseif s.lane == Lanes.f32
+    FuncType([f32], [v128])
+elseif s.lane == Lanes.i64
+    FuncType([i64], [v128])
+elseif s.lane == Lanes.f64
+    FuncType([f64], [v128])
 end
 
 inst_func_type(_, b::Block) = copy(b.fntype)

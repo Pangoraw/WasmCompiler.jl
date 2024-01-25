@@ -396,6 +396,16 @@ for lane in enum_values(Lane)
     @eval $name() = v128splat($lane)
 end
 
+struct v128replace_lane <: UnaryInst
+    lane::Lane
+    id::UInt32
+end
+
+for lane in enum_values(Lane)
+    name = Symbol(lane, "x", Lanes.count(lane), "_replace_lane")
+    @eval $name(id) = v128replace_lane($lane, id)
+end
+
 struct v128bin <: BinaryInst
     lane::Lane
     op::MathOperator
