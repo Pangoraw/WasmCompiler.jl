@@ -190,12 +190,14 @@ for (WT, T) in zip((f32, f64), (Float32, Float64))
         memarg::MemArg
     end
     @eval $load_s() = $load_s(MemArg())
+    @eval inst_func_type(_, ::$load_s) = FuncType([i32], [$WT])
 
     store_s = Symbol(WT, "_store")
     @eval struct $store_s <: Inst
         memarg::MemArg
     end
     @eval $store_s() = $store_s(MemArg())
+    @eval inst_func_type(_, ::$(store_s)) = FuncType([i32,$WT], [])
 
     for f in ("abs", "neg", "sqrt", "ceil", "floor", "trunc", "nearest")
         inst = Symbol(WT, "_", f)
@@ -286,6 +288,15 @@ struct i64_load16_u <: Inst
     memarg::MemArg
 end
 i64_load16_u() = i64_load16_u(MemArg())
+
+struct i32_store8 <: Inst
+    memarg::MemArg
+end
+i32_store8() = i32_store8(MemArg())
+struct i64_store8 <: Inst
+    memarg::MemArg
+end
+i64_store8() = i64_store8(MemArg())
 
 struct i32_store16 <: Inst
     memarg::MemArg

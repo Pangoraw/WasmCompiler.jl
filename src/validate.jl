@@ -70,7 +70,7 @@ function validate_inst(val, inst)
     # println(" ", val.stack)
 
     if length(val.stack) < length(fntype.params)
-        throw(ValidationError("invalid inst $inst"))
+        throw(ValidationError("invalid inst $inst (stack $(val.stack))"))
     end
 
     stack_values = reverse(ValType[pop!(val.stack) for _ in fntype.params])
@@ -150,6 +150,8 @@ inst_func_type(_, ::nop) = FuncType([], [])
 inst_func_type(val, lg::local_get) = FuncType([], [val.func.locals[lg.n]])
 inst_func_type(val, lt::local_tee) = FuncType([val.func.locals[lt.n]], [val.func.locals[lt.n]])
 inst_func_type(val, ls::local_set) = FuncType([val.func.locals[ls.n]], [])
+inst_func_type(val, gg::global_get) = FuncType([], [val.mod.globals[gg.n].type.type])
+inst_func_type(val, gs::global_set) = FuncType([val.mod.globals[gs.n].type.type], [])
 inst_func_type(val, ::return_) = FuncType(copy(val.func.fntype.results), [])
 
 inst_func_type(val, b::br) = val.block_types[end-b.label]
@@ -180,6 +182,24 @@ elseif s.lane == Lanes.i64
 elseif s.lane == Lanes.f64
     FuncType([f64], [v128])
 end
+
+inst_func_type(_, ::i32_load8_s) = FuncType([i32], [i32])
+inst_func_type(_, ::i32_load8_u) = FuncType([i32], [i32])
+inst_func_type(_, ::i32_load16_s) = FuncType([i32], [i32])
+inst_func_type(_, ::i32_load16_u) = FuncType([i32], [i32])
+
+inst_func_type(_, ::i64_load8_s) = FuncType([i32], [i64])
+inst_func_type(_, ::i64_load8_u) = FuncType([i32], [i64])
+inst_func_type(_, ::i64_load16_s) = FuncType([i32], [i64])
+inst_func_type(_, ::i64_load16_u) = FuncType([i32], [i64])
+inst_func_type(_, ::i64_load32_s) = FuncType([i32], [i64])
+inst_func_type(_, ::i64_load32_u) = FuncType([i32], [i64])
+
+inst_func_type(_, ::i32_store8) = FuncType([i32,i32], [])
+inst_func_type(_, ::i32_store16) = FuncType([i32,i32], [])
+inst_func_type(_, ::i64_store8) = FuncType([i32,i64], [])
+inst_func_type(_, ::i64_store16) = FuncType([i32,i64], [])
+inst_func_type(_, ::i64_store32) = FuncType([i32,i64], [])
 
 inst_func_type(_, b::Block) = copy(b.fntype)
 inst_func_type(_, b::Loop) = copy(b.fntype)

@@ -258,12 +258,14 @@ function read_inst(io::IO)
         return global_get(one(Index) + LEB128.decode(io, UInt32))
     elseif tag == 0x24
         return global_set(one(Index) + LEB128.decode(io, UInt32))
-    elseif tag in 0x28:0x39
+    elseif tag in 0x28:0x3e
         inst = [i32_load, i64_load, f32_load, f64_load,
                 i32_load8_s, i32_load8_u, i32_load16_s, i32_load16_u,
                 i64_load8_s, i64_load8_u, i64_load16_s, i64_load16_u,
                 i64_load32_s, i64_load32_u,
-                i32_store, i64_store, f32_store, f64_store][tag - 0x28 + 1]
+                i32_store, i64_store, f32_store, f64_store,
+                i32_store8, i32_store16, i64_store8, i64_store16, i64_store32,
+               ][tag - 0x28 + 1]
         return inst(MemArg(LEB128.decode(io, UInt32), LEB128.decode(io, UInt32)))
     elseif tag == 0x41
         return i32_const(LEB128.decode(io, Int32))
@@ -592,7 +594,7 @@ function wread(io::IO)
                 tt = TableType(
                     LEB128.decode(io, UInt32),
                     LEB128.decode(io, UInt32),
-                    reftype == 0x70 ? FuncRef() : ExternRef()
+                    reftype == 0x70 ? FuncRef(false) : ExternRef(false)
                 )
                 push!(wmod.tables, Table(tt))
             end
