@@ -501,7 +501,6 @@ struct call <: Inst
 end
 
 struct call_indirect <: Inst
-    tableidx::Index
     typeidx::Index
 end
 

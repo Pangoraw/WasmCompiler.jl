@@ -36,6 +36,7 @@ produces(_, _, _, ::Union{unreachable,drop,nop,local_set,global_set,return_}) = 
 produces(_, _, _, ::Union{i32_store,i64_store,f32_store,f64_store}) = 0
 produces(wmod, _, _, c::call) = length(get_function_type(wmod, c.func).results)
 produces(_, _, _, block::Union{If,Loop,Block,TryTable}) = length(block.fntype.results)
+produces(_, _, _, ::select) = 1
 
 """
     InstOperands(::Inst, operands::Vector{InstOperands})

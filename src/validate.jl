@@ -168,10 +168,15 @@ inst_func_type(val, gg::global_get) = FuncType([], [global_type(val.mod, gg.n).t
 inst_func_type(val, gs::global_set) = FuncType([global_type(val.mod, gs.n).type], [])
 inst_func_type(val, ::return_) = FuncType(copy(val.func.fntype.results), [])
 
-inst_func_type(val, b::br) = val.block_types[end-b.label]
+function inst_func_type(val, bt::br_table)
+    bt = val.block_types[end-bt.default]
+    FuncType([bt.params..., i32], [])
+end
+
+inst_func_type(val, b::br) = FuncType(copy(val.block_types[end-b.label].params), [])
 function inst_func_type(val, b::br_if)
     bt = val.block_types[end-b.label]
-    FuncType([bt.params..., i32], copy(bt.results))
+    FuncType([bt.params..., i32], [])
 end
 
 inst_func_type(_, ::i32_store) = FuncType([i32,i32], [])
