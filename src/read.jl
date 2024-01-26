@@ -454,7 +454,7 @@ end
 
 wread(path::String) = open(wread, path)
 function wread(io::IO)
-    wmod = WModule()
+    wmod = Module()
 
     # Preamble
     magic = read(io, length(MAGIC))

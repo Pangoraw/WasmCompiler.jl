@@ -542,6 +542,6 @@ struct ref_test <: Inst
 end
 
 struct string_const <: Inst
-    stringidx::Index # index in WModule.strings
+    stringidx::Index # index in Module.strings
 end
 

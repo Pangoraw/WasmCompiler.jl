@@ -1,4 +1,4 @@
-using WasmCompiler: WModule, i32, local_get, f32_add, i32_add, drop, unreachable
+using WasmCompiler: Module, i32, local_get, f32_add, i32_add, drop, unreachable
 
 @testset "validation" begin
     f = WC.Func("f",
@@ -10,7 +10,7 @@ using WasmCompiler: WModule, i32, local_get, f32_add, i32_add, drop, unreachable
             f32_add(),
         ]
     )
-    mod = WC.WModule(f)
+    mod = WC.Module(f)
 
     @test_throws "f32_add" WC.validate(mod)
 

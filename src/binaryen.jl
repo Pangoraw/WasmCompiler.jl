@@ -1,7 +1,7 @@
 using Binaryen_jll: wasmopt
 
 """
-    optimize(::WModule, level=1)::WModule
+    optimize(::Module, level=1)::Module
 
 Runs the module through binaryen's optimizer.
 """

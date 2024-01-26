@@ -446,8 +446,8 @@ function wwrite(io::IO, glob::Global)
     n
 end
 
-wwrite(path::String, wmod::WModule) = open(io -> wwrite(io, wmod), path, "w")
-function wwrite(io::IO, wmod::WModule; names=true, producers=true)
+wwrite(path::String, wmod::Module) = open(io -> wwrite(io, wmod), path, "w")
+function wwrite(io::IO, wmod::Module; names=true, producers=true)
     n = write(io, MAGIC)
     n += write(io, WASM_VERSION)
 

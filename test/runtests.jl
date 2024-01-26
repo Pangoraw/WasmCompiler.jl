@@ -21,7 +21,7 @@ include("validate.jl")
     end
 
     f = WC.emit_func(add, Tuple{Int32,Int32})
-    mod = WC.WModule(f)
+    mod = WC.Module(f)
 
     wasm = WC.wasm(mod) |> Wasmtime.WasmByteVec
 
@@ -49,7 +49,7 @@ end
 
 @testset "conds" begin
     f = WC.emit_func(func, Tuple{Int32,Int32})
-    mod = WC.WModule(f)
+    mod = WC.Module(f)
     WC.optimize!(mod, 1)
 
     wasm = WC.wasm(mod)
@@ -128,7 +128,7 @@ end
 fac(n) = iszero(n) ? one(n) : fac(n-one(n)) * n
 
 @testset "Recursive call" begin
-    mod = WC.WModule()
+    mod = WC.Module()
 
     WC.emit_func!(mod, fac, Tuple{Int32})
     WC.export!(mod, "fac", findfirst(f -> f.name == "fac", mod.funcs))
@@ -152,7 +152,7 @@ end
 f(a, b) = g(a - 1, b)
 
 @testset "Mutually recursive functions" begin
-    mod = WC.WModule()
+    mod = WC.Module()
 
     WC.emit_func!(mod, f, Tuple{Int32,Int32})
     WC.export!(mod, "f", findfirst(f -> f.name == "f", mod.funcs))

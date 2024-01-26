@@ -138,7 +138,7 @@ struct Data
     mode::DataMode
 end
 
-mutable struct WModule
+mutable struct Module
     types::Vector{WasmType}
     funcs::Vector{Func}
     tables::Vector{Table}
@@ -151,15 +151,15 @@ mutable struct WModule
     exports::Vector{Export}
     strings::Vector{String}
 end
-WModule() = WModule([], [], [], [], [], [], [], nothing, [], [], [])
-WModule(func::Func) = WModule(
+Module() = Module([], [], [], [], [], [], [], nothing, [], [], [])
+Module(func::Func) = Module(
         [], [func], [], [],
         [], [], [], nothing,
         [], [FuncExport(func.name::String, 1)],
         [],
     )
 
-num_types(mod::WModule) = sum(mod.types) do typ
+num_types(mod::Module) = sum(mod.types) do typ
     typ isa StructType && return 1
     typ isa ArrayType && return 1
     typ isa RecursiveZone && return length(typ.structs)

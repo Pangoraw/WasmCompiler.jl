@@ -2,12 +2,12 @@ import Core.Compiler: widenconst, PiNode, PhiNode, ReturnNode,
     GotoIfNot, GotoNode, SSAValue, UpsilonNode, PhiCNode
 
 """
-    RuntimeModule()::WModule
+    RuntimeModule()::Module
 
-Returns a `WModule` which can be merged with `bootstrap.wast` using `wasm-merge`.
+Returns a `Module` which can be merged with `bootstrap.wast` using `wasm-merge`.
 """
 RuntimeModule() =
-    WModule(
+    Module(
         [
             RecursiveZone([
                 StructType("jl-value-t", nothing, [ # index 1
@@ -59,7 +59,7 @@ RuntimeModule() =
   )
 
 MallocModule() =
-    WModule([], [], [], [Mem(MemoryType(1,32))], [], [], [], nothing, [
+    Module([], [], [], [Mem(MemoryType(1,32))], [], [], [], nothing, [
         FuncImport("env", "malloc", "malloc", FuncType([i32], [i32])),
         FuncImport("env", "free", "free", FuncType([i32], [])),
     ], [MemExport("memory", 1)], [])
@@ -95,7 +95,7 @@ const jl_exception_tag = 1
 @enum CompilationMode GCProposal Malloc
 
 mutable struct CodegenContext
-    mod::WModule
+    mod::Module
     mem_offset::Int32
     type_dict::Dict
     func_dict::Dict
@@ -1303,7 +1303,7 @@ function Base.showerror(io::IO, err::CompilationError)
 end
 
 emit_func(f, types; debug=false) = emit_func!(CodegenContext(; debug), f, types)
-emit_func!(mod::WModule, f, types; kwargs...) = emit_func!(CodegenContext(mod; kwargs...), f, types)
+emit_func!(mod::Module, f, types; kwargs...) = emit_func!(CodegenContext(mod; kwargs...), f, types)
 emit_func!(ctx, f, types) = emit_func!(ctx, Tuple{Core.Typeof(f), types.parameters...})
 
 function emit_func!(ctx, types)

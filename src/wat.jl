@@ -14,7 +14,7 @@ function format_data_init(io::IO, bytes::Vector{UInt8})
     end
 end
 
-function _printwasm(io::IO, mod::WModule)
+function _printwasm(io::IO, mod::Module)
     print(io, "(")
     _printkw(io, "module")
     indent = INDENT_INC
@@ -205,7 +205,7 @@ function print_sigil(io::IO, sigil)
       print(io, '$', sigil)
 end
 
-function _find_type(mod::WModule, typeidx)
+function _find_type(mod::Module, typeidx)
     s = 0
     for type in Iterators.flatten(
         Iterators.map(t -> t isa RecursiveZone ? t.structs : (t,), mod.types))

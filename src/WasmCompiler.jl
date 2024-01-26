@@ -79,7 +79,7 @@ macro code_wasm(exprs...)
                 WasmCompiler.RuntimeModule() :
                 $(wmod) === :malloc ?
                 WasmCompiler.MallocModule() :
-                WasmCompiler.WModule()
+                WasmCompiler.Module()
             num_funcs = length(module_.funcs)
             WasmCompiler.emit_func!(module_, $f, types;
                                     debug=$(debug),
@@ -112,7 +112,7 @@ macro code_wasm(exprs...)
 end
 
 wat(obj) = sprint(show, Wat(obj))
-wast(obj::WModule) = sprint(show, Wat(obj, true))
+wast(obj::Module) = sprint(show, Wat(obj, true))
 
 const WC = @__MODULE__
 

@@ -1,5 +1,5 @@
 mutable struct FnValidator
-    mod::WModule
+    mod::Module
     func::Func
 
     fntype::FuncType
@@ -17,7 +17,7 @@ showerror(io::IO, ve::ValidationError) = print(io, ve.msg)
 
 validate(mod) = foreach(fn -> validate_fn(mod, fn), mod.funcs)
 
-function validate_fn(mod::WModule, func::Func)
+function validate_fn(mod::Module, func::Func)
     val = FnValidator(mod, func, func.fntype, false, ValType[], FuncType[])
 
     for inst in func.inst
