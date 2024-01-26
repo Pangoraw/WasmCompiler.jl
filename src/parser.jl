@@ -462,6 +462,10 @@ function make_module!(mod, exprs)
                 named_functions[name] = length(func_exprs) + num_function_imports
             end
             push!(func_exprs, ex)
+        elseif head === :memory
+            min = popfirst!(args)
+            max = isempty(args) ? typemax(UInt32) : only(args)
+            push!(mod.mems, Mem(MemoryType(min, max)))
         elseif head === :type
             name, rest... = args
             _, rest... = rest
