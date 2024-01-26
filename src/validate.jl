@@ -13,7 +13,7 @@ struct ValidationError <: Exception
     msg::String
 end
 
-showerror(io::IO, ve::ValidationError) = print(io, ve.msg)
+Base.showerror(io::IO, ve::ValidationError) = print(io, ve.msg)
 
 validate(mod) = foreach(fn -> validate_fn(mod, fn), mod.funcs)
 
@@ -44,7 +44,7 @@ function validate_inst(val, inst)
 
     if inst isa drop
         if isempty(val.stack)
-            throw(ValidationError("not enough values to drop"))
+            throw(ValidationError("type mismatch: not enough values to drop"))
         end
 
         pop!(val.stack)
@@ -54,7 +54,7 @@ function validate_inst(val, inst)
 
     if inst isa select
         if length(val.stack) < 3
-            throw(ValidationError("not enough values for select"))
+            throw(ValidationError("type mismatch: not enough values for select"))
         end
 
         cond = pop!(val.stack)
@@ -80,13 +80,13 @@ function validate_inst(val, inst)
     # println(" ", val.stack)
 
     if length(val.stack) < length(fntype.params)
-        throw(ValidationError("invalid inst $inst (stack $(val.stack))"))
+        throw(ValidationError("type mismatch: expected $(fntype.params) but got $(val.stack) on the stack for $inst"))
     end
 
     stack_values = reverse(ValType[pop!(val.stack) for _ in fntype.params])
 
     if stack_values != fntype.params
-        throw(ValidationError("expected $(fntype.params) but got $stack_values on the stack for $inst"))
+        throw(ValidationError("type mismatch: expected $(fntype.params) but got $stack_values on the stack for $inst"))
     end
 
     if inst isa global_set && !global_type(mod, inst.n).mut
@@ -94,6 +94,9 @@ function validate_inst(val, inst)
     end
 
     if inst isa If
+        prev_stack = copy(val.stack)
+        empty!(val.stack)
+
         push!(
             val.block_types,
             inst.fntype,
@@ -113,6 +116,10 @@ function validate_inst(val, inst)
         end
         val.type_unreachable = false
 
+        if !isempty(val.stack)
+            throw(ValidationError("type mismatch: if"))
+        end
+
         append!(val.stack, stack_values[begin:end-1])
 
         for cinst in inst.falseinst
@@ -127,10 +134,19 @@ function validate_inst(val, inst)
         end
         val.type_unreachable = false
 
+        if !isempty(val.stack)
+            throw(ValidationError("type mismatch: if"))
+        end
+
+        append!(val.stack, prev_stack, inst.fntype.results)
+
         pop!(val.block_types)
     end
 
     if inst isa Block || inst isa Loop
+        prev_stack = copy(val.stack)
+        empty!(val.stack)
+
         push!(
             val.block_types,
             inst.fntype,
@@ -140,6 +156,20 @@ function validate_inst(val, inst)
         for cinst in inst.inst
             validate_inst(val, cinst)
         end
+
+        if last(val.stack, length(inst.fntype.results)) != inst.fntype.results
+            throw(ValidationError("invalid if false branch"))
+        end
+        for _ in 1:length(inst.fntype.results)
+            pop!(val.stack)
+        end
+        val.type_unreachable = false
+
+        if !isempty(val.stack)
+            throw(ValidationError("type mismatch: block"))
+        end
+
+        append!(val.stack, prev_stack, inst.fntype.results)
 
         pop!(val.block_types)
     end
@@ -219,6 +249,18 @@ inst_func_type(_, ::i32_store16) = FuncType([i32,i32], [])
 inst_func_type(_, ::i64_store8) = FuncType([i32,i64], [])
 inst_func_type(_, ::i64_store16) = FuncType([i32,i64], [])
 inst_func_type(_, ::i64_store32) = FuncType([i32,i64], [])
+
+inst_func_type(_, ::f32_convert_i64_s) = FuncType([i64], [f32])
+inst_func_type(_, ::f32_convert_i64_u) = FuncType([i64], [f32])
+inst_func_type(_, ::f32_convert_i32_s) = FuncType([i32], [f32])
+inst_func_type(_, ::f32_convert_i32_u) = FuncType([i32], [f32])
+
+inst_func_type(_, t::throw_) = FuncType([], [])
+
+inst_func_type(_, ::f64_convert_i64_s) = FuncType([i64], [f64])
+inst_func_type(_, ::f64_convert_i64_u) = FuncType([i64], [f64])
+inst_func_type(_, ::f64_convert_i32_s) = FuncType([i32], [f64])
+inst_func_type(_, ::f64_convert_i32_u) = FuncType([i32], [f64])
 
 inst_func_type(_, b::Block) = copy(b.fntype)
 inst_func_type(_, b::Loop) = copy(b.fntype)

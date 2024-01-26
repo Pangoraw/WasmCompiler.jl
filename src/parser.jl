@@ -66,8 +66,7 @@ function lex(io::IO)
         elseif c == '\t' || c == ' ' || c == '\n' || c == '\r'
             read(io, Char)
         else
-            @show tokens
-            println(String(read(io)))
+            # println(String(read(io)))
             error("invalid char $c $((UInt32(c))) at $(position(io))")
         end
     end
@@ -141,9 +140,13 @@ function read_number(io::IO)
 
     n = 0
     c = peek(io, Char)
-    while !eof(io) && (numberstart(c) || (base == 16 && (c ∈ ('a':'f') ∪ ('A':'F'))) || c == '.')
+    while !eof(io) && (numberstart(c) || (base == 16 && (c ∈ ('a':'f') ∪ ('A':'F'))) || c == '.' || c == '_')
         if c == '.'
             error("unimplemented")
+        elseif c == '_'
+            read(io, Char)
+            c = peek(io, Char)
+            continue
         end
         n = base * n + parse(Int,c;base)
         read(io, Char)
@@ -172,6 +175,7 @@ function parse_sexpr(tokens)
 end
 
 issexpr(val::Vector{Any}, head) = length(val) >= 1 && first(val) === head
+issexpr(_, _) = false
 
 function parse_valtype(ex)
     if ex === :i32
@@ -196,7 +200,7 @@ function parse_functype!(args, ctx)
 
         valtypes = if length(p) > 0 && first(p) isa Symbol && startswith(string(first(p)), '$')
             name = first(p)
-            ctx.named_locals[name] = length(params)
+            ctx.named_locals[name] = length(params) + 1
             @assert length(p) == 2
             ValType[parse_valtype(last(p))]
         else
@@ -250,6 +254,8 @@ function make_inst_linear!(inst, args, ctx)
             push!(inst, local_get(_resolve_local(ctx, popfirst!(args))))
         elseif head === :global_set
             push!(inst, global_set(_resolve_global(ctx, popfirst!(args))))
+        elseif head === :global_get
+            push!(inst, global_get(_resolve_global(ctx, popfirst!(args))))
         elseif head === :call_indirect
             typ = _resolve_type(ctx, popfirst!(args)[end])
             push!(inst, call_indirect(typ))
@@ -305,10 +311,9 @@ function make_inst_linear!(inst, args, ctx)
             push!(inst, Block(fntype, newinst))
         else
             T = getproperty(WC, head)
-            @assert T <: Inst "invalid head $head"
+            @assert T <: Inst "invalid head $head $T"
             push!(inst, T())
-            error("invalid head $head")
-        end        
+        end
     end
 end
 
@@ -326,7 +331,9 @@ function make_inst!(inst, ex, ctx)
 
     head, args... = ex
     head =  replace(string(head), '.' => '_') |> Symbol
+
     if head === :i32_const
+
         val = only(args)
 
         if val > typemax(Int32)
@@ -336,35 +343,41 @@ function make_inst!(inst, ex, ctx)
         push!(inst, i32_const(val))
     elseif head === :i64_const
         push!(inst, i64_const(only(args)))
+    elseif head === :f32_const
+        push!(inst, f32_const(only(args)))
+    elseif head === :f64_const
+        push!(inst, f64_const(only(args)))
     elseif head === :local_set
-        @assert length(args) == 2
-        make_inst!(inst, last(args), ctx)
-        push!(inst, local_set(_resolve_local(ctx, first(args))))
-    elseif head === :local_tee
+        loc = _resolve_local(ctx, popfirst!(args))
         make_inst!(inst, args, ctx)
-        push!(inst, local_tee(_resolve_local(ctx, first(args))))
+        push!(inst, local_set(loc))
+    elseif head === :local_tee
+        loc = _resolve_local(ctx, popfirst!(args))
+        make_inst!(inst, args, ctx)
+        push!(inst, local_tee(loc))
     elseif head === :local_get
-        @assert length(args) == 1
-        push!(inst, local_get(_resolve_local(ctx, first(args))))
+        loc = _resolve_local(ctx, popfirst!(args))
+        make_inst!(inst, args, ctx)
+        push!(inst, local_get(loc))
     elseif head === :global_set
-        @assert length(args) == 1
-        push!(inst, global_set(_resolve_global(ctx, first(args))))
-    elseif head === :select
-        @assert length(args) == 3
-        make_inst!(inst, args[1], ctx)
-        make_inst!(inst, args[2], ctx)
-        make_inst!(inst, args[3], ctx)
-        push!(inst, select())
+        global_ = _resolve_global(ctx, popfirst!(args))
+        make_inst!(inst, args, ctx)
+        push!(inst, global_set(global_))
+    elseif head === :global_get
+        global_ = _resolve_global(ctx, popfirst!(args))
+        make_inst!(inst, args, ctx)
+        push!(inst, global_get(global_))
+    elseif head in (:i32_load, :i32_store)
+        make_inst!(inst, args, ctx)
+        memarg = MemArg()
+        push!(inst, getproperty(WC, head)(memarg))
     elseif head ∈ (:i32_eqz, :i32_eq, :i32_ne, :i32_add, :i32_sub, :i32_div_s, :i32_div_u, :i32_lt_s, :i32_lt_u,
                    :i32_le_s, :i32_le_u, :i32_gt_u, :i32_gt_s, :i32_ge_s, :i32_ge_u, :i32_rem_s, :i32_rem_u,
                    :i32_and, :i32_or, :i32_xor, :i32_shl, :i32_shr_u, :i32_shr_s, :i32_rotl, :i32_rotr, :i32_clz,
                    :i32_ctz, :i32_popcnt, :i32_extend8_s, :i32_extend8_u, :i32_extend16_u, :i32_extend16_s,
-                   :i32_gt_s, :i32_mul,
-                   :i64_eq, :i64_add, :i64_sub, :i64_le_s, :i64_gt_s, :i64_mul, )
+                   :i32_gt_s, :i32_mul, :i64_eq, :i64_add, :i64_sub, :i64_le_s, :i64_gt_s, :i64_mul, :memory_grow, :select,
+                   :unreachable, :nop, :drop)
         make_inst!(inst, args, ctx)
-        push!(inst, getproperty(WC, head)())
-    elseif head ∈ (:unreachable, :nop, :drop)
-        @assert isempty(args)
         push!(inst, getproperty(WC, head)())
     elseif head === :call_indirect
         typ = _resolve_type(ctx, popfirst!(args)[end])
@@ -462,6 +475,26 @@ function make_module!(mod, exprs)
                 named_functions[name] = length(func_exprs) + num_function_imports
             end
             push!(func_exprs, ex)
+        elseif head === :global
+            name = length(args) >= 1 && first(args) isa Symbol && startswith(string(first(args)), '$') ?
+                string(popfirst!(args))[begin+1:end] : nothing
+
+            if isempty(args)
+                error("invalid global")
+            end
+
+            mut, type = if first(args) isa Vector{Any} && first(args)[1] === :mut
+                _, a = popfirst!(args) 
+                true, parse_valtype(a)
+            else
+                false, parse_valtype(popfirst!(args))
+            end
+
+            inst = Inst[]
+            make_inst!(inst, args, FuncContext())
+
+            push!(mod.globals, Global(name, GlobalType(mut, type), inst))
+            named_globals[Symbol('$', name)] = length(mod.globals)
         elseif head === :memory
             min = popfirst!(args)
             max = isempty(args) ? typemax(UInt32) : only(args)
@@ -479,58 +512,61 @@ function make_module!(mod, exprs)
 
     for (func_idx, ex) in enumerate(func_exprs)
         head, args... = ex
-        if head === :func
-            name = length(args) >= 1 && first(args) isa Symbol && startswith(string(args[1]), '$') ?
-                string(popfirst!(args))[begin+1:end] : nothing
+
+        name = length(args) >= 1 && first(args) isa Symbol && startswith(string(args[1]), '$') ?
+            string(popfirst!(args))[begin+1:end] : nothing
 
             if length(args) >= 1 && issexpr(first(args), :export)
-                _, name = popfirst!(args)
-                push!(mod.exports,
-                    FuncExport(name, func_idx + num_function_imports)
-                )
-            end
-
-            ctx = FuncContext(
-                named_globals,
-                named_functions,
-                named_types,
-                Dict{Symbol,Int}(),
-                Symbol[],
+            _, name = popfirst!(args)
+            push!(mod.exports,
+                FuncExport(name, func_idx + num_function_imports)
             )
+        end
 
-            fntype = parse_functype!(args, ctx)
+        ctx = FuncContext(
+            named_globals,
+            named_functions,
+            named_types,
+            Dict{Symbol,Int}(),
+            Symbol[],
+        )
 
-            locals = copy(fntype.params)
-            while length(args) >= 1 && issexpr(first(args), :local)
-                _, p... = popfirst!(args)
+        fntype = parse_functype!(args, ctx)
 
-                valtypes = if length(p) > 0 && first(p) isa Symbol && startswith(string(first(p)), '$')
-                    name = first(p)
-                    ctx.named_locals[name] = length(locals)
-                    @assert length(p) == 2
-                    ValType[parse_valtype(last(p))]
-                else
-                    parse_valtype.(p)
-                end
+        locals = copy(fntype.params)
+        while length(args) >= 1 && issexpr(first(args), :local)
+            _, p... = popfirst!(args)
 
-                append!(locals, parse_valtype.(p))
+            valtypes = if length(p) > 0 && first(p) isa Symbol && startswith(string(first(p)), '$')
+                name = first(p)
+                ctx.named_locals[name] = length(locals) + 1
+                @assert length(p) == 2
+                ValType[parse_valtype(last(p))]
+            else
+                parse_valtype.(p)
             end
 
-            inst = Inst[]
+            append!(locals, parse_valtype.(p))
+        end
 
+        inst = Inst[]
+
+        if !any(a -> a isa Vector{Any}, args)
+            make_inst_linear!(inst, args, ctx)
+        else
             while !isempty(args)
                 ex = popfirst!(args)
                 if !(ex isa Vector{Any})
-                    error("invalid expr $ex")
+                    error("invalid inst $ex")
                 end
                 make_inst!(inst, ex, ctx)
             end
-
-            push!(
-                mod.funcs,
-                Func(name, fntype, locals, inst)
-            )
         end
+
+        push!(
+            mod.funcs,
+            Func(name, fntype, locals, inst)
+        )
 
     end
 
@@ -564,17 +600,29 @@ function parse_wast(io::IO)
             push!(results, mod)
         elseif head === :assert_return
             inst = Inst[]
-            make_inst!(inst, args[2], FuncContext())
+            ctx = FuncContext()
 
-            push!(results, [:assert_return, args[1], inst])
+            @show args
+            make_inst!(inst, args[2], ctx)
+
+            inv, name, fargs... = args[1]
+
+            vargs = Inst[]
+            make_inst!(vargs, fargs, ctx)
+
+
+            push!(results, [:assert_return, Any[inv,name,vargs], inst])
         elseif head === :assert_invalid
             mod = Module()
             make_module!(mod, args[1][begin+1:end])
-            @show WC.Wat(mod)
-            try validate(mod)
-            catch e
-                e isa ValidationError || rethrow()
-            end
+            push!(
+                results,
+                Any[:assert_invalid, mod, args[end]]
+            )
+            # try validate(mod)
+            # catch e
+            #     e isa ValidationError || rethrow()
+            # end
         else
             push!(results, ex)
         end

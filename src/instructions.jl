@@ -456,6 +456,7 @@ struct table_fill <: Inst
     idx::Index
 end
 
+struct memory_grow <: Inst end
 struct memory_copy <: Inst end
 struct memory_fill <: Inst end
 
