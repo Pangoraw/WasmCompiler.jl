@@ -220,6 +220,99 @@ _resolve_func(ctx, idx) = get(() -> idx+1, ctx.named_functions, idx)
 _resolve_type(ctx, idx) = get(() -> idx+1, ctx.named_types, idx)
 _resolve_global(ctx, idx) = get(() -> idx + 1, ctx.named_globals, idx)
 
+# for wat
+function make_inst_linear!(inst, args, ctx)
+
+    while !isempty(args)
+        if first(args) in (:end, :else)
+            break
+        end
+        
+        head = popfirst!(args)
+        head =  replace(string(head), '.' => '_') |> Symbol
+
+        if head === :i32_const
+            val = popfirst!(args)
+    
+            if val > typemax(Int32)
+                val = reinterpret(Int32, UInt32(val))
+            end
+    
+            push!(inst, i32_const(val))
+        elseif head === :i64_const
+            push!(inst, i64_const(popfirst!(args)))
+        elseif head === :local_set
+            push!(inst, local_set(_resolve_local(ctx, popfirst!(args))))
+        elseif head === :local_tee
+            push!(inst, local_tee(_resolve_local(ctx, popfirst!(args))))
+        elseif head === :local_get
+            @assert length(args) == 1
+            push!(inst, local_get(_resolve_local(ctx, popfirst!(args))))
+        elseif head === :global_set
+            push!(inst, global_set(_resolve_global(ctx, popfirst!(args))))
+        elseif head === :call_indirect
+            typ = _resolve_type(ctx, popfirst!(args)[end])
+            push!(inst, call_indirect(typ))
+        elseif head === :call
+            func = _resolve_func(ctx, popfirst!(args))
+            push!(inst, call(func))
+        elseif head === :br_if || head === :br
+            dest = popfirst!(args)
+            push!(inst, getproperty(WC, head)(_resolve_label(ctx, dest)))
+        elseif head === :br_table
+            labels = Int[]
+    
+            while first(args) isa Symbol || first(args) isa Int
+                push!(
+                    labels,
+                    _resolve_label(ctx, popfirst!(args)),
+                )
+            end
+    
+            default = pop!(labels)
+            push!(inst, br_table(labels, default))
+
+        elseif head === :return
+            make_inst!(inst, args, ctx)
+            push!(inst, return_())
+        elseif head === :if
+            fntype = parse_functype!(args, ctx)
+      
+            trueinst = Inst[]
+            make_inst_linear!(trueinst, args, ctx)
+
+            terminator = popfirst!(args)
+            
+            falseinst = Inst[]
+            if terminator === :else
+                make_inst_linear!(falseinst, args, ctx)
+                terminator = popfirst!(args)
+            end
+            @assert terminator === :end "invalid if"
+    
+            push!(inst, If(fntype, trueinst, falseinst))
+        elseif head === :loop
+            fntype = parse_functype!(args, ctx)
+            newinst = Inst[]
+            make_inst_linear!(newinst, args, ctx)
+            @assert popfirst!(args) === :end "invalid loop"
+            push!(inst, Loop(fntype, newinst))
+        elseif head === :block
+            fntype = parse_functype!(args, ctx)
+            newinst = Inst[]
+            make_inst_linear!(newinst, args, ctx)
+            @assert popfirst!(args) === :end "invalid block"
+            push!(inst, Block(fntype, newinst))
+        else
+            T = getproperty(WC, head)
+            @assert T <: Inst "invalid head $head"
+            push!(inst, T())
+            error("invalid head $head")
+        end        
+    end
+end
+
+# for wast
 function make_inst!(inst, ex, ctx)
     if length(ex) == 0
         return
