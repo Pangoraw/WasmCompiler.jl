@@ -214,11 +214,11 @@ function parse_functype!(args, ctx)
     FuncType(params, results)
 end
 
-resolve_local(ctx, idx) = idx isa Int ? idx + 1 : ctx.named_locals[idx]
-resolve_label(ctx, idx) = idx isa Int ? idx : error()
-resolve_func(ctx, idx) = get(() -> idx+1, ctx.named_functions, idx)
-resolve_type(ctx, idx) = get(() -> idx+1, ctx.named_types, idx)
-resolve_global(ctx, idx) = get(() -> idx + 1, ctx.named_globals, idx)
+_resolve_local(ctx, idx) = idx isa Int ? idx + 1 : ctx.named_locals[idx]
+_resolve_label(ctx, idx) = idx isa Int ? idx : error()
+_resolve_func(ctx, idx) = get(() -> idx+1, ctx.named_functions, idx)
+_resolve_type(ctx, idx) = get(() -> idx+1, ctx.named_types, idx)
+_resolve_global(ctx, idx) = get(() -> idx + 1, ctx.named_globals, idx)
 
 function make_inst!(inst, ex, ctx)
     if length(ex) == 0
@@ -246,16 +246,16 @@ function make_inst!(inst, ex, ctx)
     elseif head === :local_set
         @assert length(args) == 2
         make_inst!(inst, last(args), ctx)
-        push!(inst, local_set(resolve_local(ctx, first(args))))
+        push!(inst, local_set(_resolve_local(ctx, first(args))))
     elseif head === :local_tee
         make_inst!(inst, args, ctx)
-        push!(inst, local_tee(resolve_local(ctx, first(args))))
+        push!(inst, local_tee(_resolve_local(ctx, first(args))))
     elseif head === :local_get
         @assert length(args) == 1
-        push!(inst, local_get(resolve_local(ctx, first(args))))
+        push!(inst, local_get(_resolve_local(ctx, first(args))))
     elseif head === :global_set
         @assert length(args) == 1
-        push!(inst, global_set(resolve_global(ctx, first(args))))
+        push!(inst, global_set(_resolve_global(ctx, first(args))))
     elseif head === :select
         @assert length(args) == 3
         make_inst!(inst, args[1], ctx)
@@ -274,11 +274,11 @@ function make_inst!(inst, ex, ctx)
         @assert isempty(args)
         push!(inst, getproperty(WC, head)())
     elseif head === :call_indirect
-        typ = resolve_type(ctx, popfirst!(args)[end])
+        typ = _resolve_type(ctx, popfirst!(args)[end])
         make_inst!(inst, args, ctx)
         push!(inst, call_indirect(typ))
     elseif head === :call
-        func = resolve_func(ctx, popfirst!(args))
+        func = _resolve_func(ctx, popfirst!(args))
         make_inst!(inst, args, ctx)
         push!(inst, call(func))
     elseif head === :br_if || head === :br
@@ -291,7 +291,7 @@ function make_inst!(inst, ex, ctx)
         while first(args) isa Symbol || first(args) isa Int
             push!(
                 labels,
-                resolve_label(ctx, popfirst!(args)),
+                _resolve_label(ctx, popfirst!(args)),
             )
         end
 
@@ -378,8 +378,6 @@ function make_module!(mod, exprs)
 
             named_types[name] = length(mod.types)
         end
-
-
     end
 
     for (func_idx, ex) in enumerate(func_exprs)
