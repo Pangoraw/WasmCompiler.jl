@@ -355,6 +355,29 @@ function make_inst_linear!(inst, args, ctx)
     end
 end
 
+function parse_memarg!(args)
+    align = 0 
+    offset = 0
+
+    if !isempty(args) && first(args) === :offset
+        @assert length(args) >= 3
+        @assert args[2] === '='
+        popfirst!(args); popfirst!(args)
+
+        offset = popfirst!(args)::Int
+    end
+
+    if !isempty(args) && first(args) === :align
+        @assert length(args) >= 3
+        @assert args[2] === '='
+        popfirst!(args); popfirst!(args)
+
+        align = popfirst!(args)::Int
+    end
+
+    MemArg(align, offset)
+end
+
 # for wast
 function make_inst!(inst, ex, ctx)
     if length(ex) == 0
@@ -413,9 +436,14 @@ function make_inst!(inst, ex, ctx)
         global_ = _resolve_global(ctx, popfirst!(args))
         make_inst!(inst, args, ctx)
         push!(inst, global_get(global_))
-    elseif head in (:i32_load, :i32_store)
+    elseif head in [:i32_load, :i64_load, :f32_load, :f64_load,
+                    :i32_load8_s, :i32_load8_u, :i32_load16_s, :i32_load16_u,
+                    :i64_load8_s, :i64_load8_u, :i64_load16_s, :i64_load16_u,
+                    :i64_load32_s, :i64_load32_u,
+                    :i32_store, :i64_store, :f32_store, :f64_store,
+                    :i32_store8, :i32_store16, :i64_store8, :i64_store16, :i64_store32]
+        memarg = parse_memarg!(args)
         make_inst!(inst, args, ctx)
-        memarg = MemArg()
         push!(inst, getproperty(WC, head)(memarg))
     elseif head === :call_indirect
         typ = _resolve_type(ctx, popfirst!(args)[end])
@@ -544,7 +572,6 @@ function make_module!(mod, exprs)
             push!(mod.globals, Global(name, GlobalType(mut, type), inst))
             named_globals[Symbol('$', name)] = length(mod.globals)
         elseif head === :memory
-          @show args
             min = popfirst!(args)
             max = isempty(args) ? typemax(UInt32) : only(args)
             push!(mod.mems, Mem(MemoryType(min, max)))
