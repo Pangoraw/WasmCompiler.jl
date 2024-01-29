@@ -20,7 +20,12 @@ using ..WasmCompiler:
     Block, If, Loop, i32_mul,
     f64_convert_i64_s, f64_sqrt, f32_sqrt,
     f64_convert_i64_u,
-    f32_load,
+    i32_load, i64_load, f32_load, f64_load,
+    i32_load8_s, i32_load8_u, i32_load16_s, i32_load16_u,
+    i64_load8_s, i64_load8_u, i64_load16_s, i64_load16_u,
+    i64_load32_s, i64_load32_u,
+    i32_store, i64_store, f32_store, f64_store,
+    i32_store8, i32_store16, i64_store8, i64_store16, i64_store32,
     f32_add,
     i64_extend_i32_s, i64_extend_i32_u,
     call,
@@ -310,9 +315,100 @@ function interpret(instance, frame, expr)
             push!(frame.value_stack, Float64(reinterpret(UInt64, pop!(frame.value_stack)::Int64)))
         elseif inst isa f32_add
             push!(frame.value_stack, pop!(frame.value_stack)::Float32 + pop!(frame.value_stack)::Float32)
+        elseif inst isa i32_load
+            ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            push!(frame.value_stack, reinterpret(Int32, instance.mems[1])[1 + div(ptr, sizeof(Int32))])
+        elseif inst isa i64_load
+            ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            push!(frame.value_stack, reinterpret(Int64, instance.mems[1])[1 + div(ptr, sizeof(Int64))])
         elseif inst isa f32_load
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
             push!(frame.value_stack, reinterpret(Float32, instance.mems[1])[1 + div(ptr, sizeof(Float32))])
+        elseif inst isa f64_load
+            ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            push!(frame.value_stack, reinterpret(Float64, instance.mems[1])[1 + div(ptr, sizeof(Float64))])
+        elseif inst isa i32_load8_s
+            ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            push!(frame.value_stack, Int32(reinterpret(Int8, instance.mems[1][1 + ptr])))
+        elseif inst isa i32_load8_u
+            ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            push!(frame.value_stack, Int32(instance.mems[1][1 + ptr]))
+        elseif inst isa i32_load16_s
+            ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            push!(frame.value_stack, Int32(reinterpret(Int16, instance.mems[1])[1 + div(ptr, sizeof(Int16))]))
+        elseif inst isa i32_load16_u
+            ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            push!(frame.value_stack, Int32(reinterpret(UInt16, instance.mems[1])[1 + div(ptr, sizeof(UInt16))]))
+        elseif inst isa i64_load8_s
+            ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            push!(frame.value_stack, Int64(reinterpret(Int8, instance.mems[1][1 + ptr])))
+        elseif inst isa i64_load8_u
+            ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            push!(frame.value_stack, Int64(instance.mems[1][1 + ptr]))
+        elseif inst isa i64_load16_s
+            ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            push!(frame.value_stack, Int64(reinterpret(Int16, instance.mems[1])[1 + div(ptr, sizeof(Int16))]))
+        elseif inst isa i64_load16_u
+            ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            push!(frame.value_stack, Int64(reinterpret(UInt16, instance.mems[1])[1 + div(ptr, sizeof(UInt16))]))
+        elseif inst isa i64_load32_s
+            ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            push!(frame.value_stack, Int64(reinterpret(Int32, instance.mems[1])[1 + div(ptr, sizeof(Int32))]))
+        elseif inst isa i64_load32_u
+            ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            push!(frame.value_stack, Int64(reinterpret(UInt32, instance.mems[1])[1 + div(ptr, sizeof(UInt32))]))
+        elseif inst isa i32_store
+            val = pop!(frame.value_stack)::Int32
+            ptr = pop!(frame.value_stack)::Int32
+            mem = instance.mems[1]
+            buf = reinterpret(Int32, mem.buf)
+            buf[1 + div(ptr, sizeof(Int32))] = val
+        elseif inst isa i64_store
+            val = pop!(frame.value_stack)::Int64
+            ptr = pop!(frame.value_stack)::Int32
+            mem = instance.mems[1]
+            buf = reinterpret(Int32, mem.buf)
+            buf[1 + div(ptr, sizeof(Int64))] = val
+        elseif inst isa f32_store
+            val = pop!(frame.value_stack)::Float32
+            ptr = pop!(frame.value_stack)::Int32
+            mem = instance.mems[1]
+            buf = reinterpret(Float32, mem.buf)
+            buf[1 + div(ptr, sizeof(Float32))] = val
+        elseif inst isa f64_store
+            val = pop!(frame.value_stack)::Float64
+            ptr = pop!(frame.value_stack)::Int32
+            mem = instance.mems[1]
+            buf = reinterpret(Float64, mem.buf)
+            buf[1 + div(ptr, sizeof(Float64))] = val
+        elseif inst isa i32_store8
+            val = pop!(frame.value_stack)::Int32
+            ptr = pop!(frame.value_stack)::Int32
+            mem = instance.mems[1]
+            mem.buf[1 + ptr] = val
+        elseif inst isa i32_store16
+            val = pop!(frame.value_stack)::Int32
+            ptr = pop!(frame.value_stack)::Int32
+            mem = instance.mems[1]
+            buf = reinterpret(Int16, mem.buf)
+            buf[1 + div(ptr, sizeof(Int16))] = val
+        elseif inst isa i64_store8
+            val = pop!(frame.value_stack)::Int64
+            ptr = pop!(frame.value_stack)::Int32
+            mem = instance.mems[1]
+            mem.buf[1 + ptr] = val
+        elseif inst isa i64_store16
+            val = pop!(frame.value_stack)::Int64
+            ptr = pop!(frame.value_stack)::Int32
+            mem = instance.mems[1]
+            buf = reinterpret(Int16, mem.buf)
+            buf[1 + div(ptr, sizeof(Int16))] = val
+        elseif inst isa i64_store32
+            val = pop!(frame.value_stack)::Int64
+            ptr = pop!(frame.value_stack)::Int32
+            mem = instance.mems[1]
+            buf = reinterpret(Int32, mem.buf)
+            buf[1 + div(ptr, sizeof(Int32))] = val
         elseif inst isa drop
             pop!(frame.value_stack)
         elseif inst isa select

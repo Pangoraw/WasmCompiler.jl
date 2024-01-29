@@ -53,6 +53,9 @@ function lex(io::IO)
         elseif c == ')'
             read(io, Char)
             push!(tokens, Token(position(io), ')'))
+        elseif c == '='
+            read(io, Char)
+            push!(tokens, Token(position(io), '='))
         elseif c == ';'
             read(io, Char)
             if peek(io, Char) == ';'
@@ -62,6 +65,7 @@ function lex(io::IO)
                         break
                     end
                 end
+                c = peek(io, Char)
             end
         elseif c == '\t' || c == ' ' || c == '\n' || c == '\r'
             read(io, Char)
@@ -540,6 +544,7 @@ function make_module!(mod, exprs)
             push!(mod.globals, Global(name, GlobalType(mut, type), inst))
             named_globals[Symbol('$', name)] = length(mod.globals)
         elseif head === :memory
+          @show args
             min = popfirst!(args)
             max = isempty(args) ? typemax(UInt32) : only(args)
             push!(mod.mems, Mem(MemoryType(min, max)))
