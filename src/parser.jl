@@ -157,20 +157,25 @@ function read_number(io::IO)
     neg ? -n : n
 end
 
-function parse_sexpr(tokens)
+function parse_sexpr(tokens, level=0)
     result = []
 
     while !isempty(tokens)
         (; pos, val) = popfirst!(tokens)
 
         if val === '('
-            push!(result, parse_sexpr(tokens))
+            push!(result, parse_sexpr(tokens, level + 1))
         elseif val === ')'
-            break
+            if level == 0
+                error("invalid closing paren at 0x$(string(pos; base=16))")
+            end
+            return result
         else
             push!(result, val)
         end
     end
+
+    level == 0 || error("invalid expression")
 
     result
 end
@@ -268,7 +273,6 @@ function make_inst_linear!(inst, args, ctx)
         elseif head === :local_tee
             push!(inst, local_tee(_resolve_local(ctx, popfirst!(args))))
         elseif head === :local_get
-            @assert length(args) == 1
             push!(inst, local_get(_resolve_local(ctx, popfirst!(args))))
         elseif head === :global_set
             push!(inst, global_set(_resolve_global(ctx, popfirst!(args))))
@@ -471,6 +475,7 @@ end
 
 function make_module!(mod, exprs)
     func_exprs = Any[]
+    export_exprs = Any[]
     imports_exprs = Any[]
 
     num_function_imports = 0
@@ -517,6 +522,8 @@ function make_module!(mod, exprs)
             min = popfirst!(args)
             max = isempty(args) ? typemax(UInt32) : only(args)
             push!(mod.mems, Mem(MemoryType(min, max)))
+        elseif head === :export
+            push!(export_exprs, args)
         elseif head === :type
             name = nothing
             if first(args) isa Symbol
@@ -593,6 +600,27 @@ function make_module!(mod, exprs)
             Func(name, fntype, locals, inst)
         )
 
+    end
+
+    for args in export_exprs
+        ctx = FuncContext(
+            mod,
+            named_globals,
+            named_functions,
+            named_types,
+            Dict{Symbol,Int}(),
+            Symbol[],
+        )
+        name = popfirst!(args)::String
+        exp = if issexpr(only(args), :func)
+            fname = last(only(args))
+            FuncExport(name, _resolve_func(ctx, fname))
+        elseif issexpr(only(args), :memory)
+            MemExport(name, 1+last(only(args)))
+        else
+            error("cannot export $args")
+        end
+        push!(mod.exports, exp)
     end
 
 end

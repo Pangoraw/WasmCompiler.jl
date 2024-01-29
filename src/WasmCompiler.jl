@@ -113,11 +113,17 @@ macro code_wasm(exprs...)
     end
 end
 
+macro wat_str(s)
+    quote
+        WC.parse_wast(IOBuffer($s))[1]::Module
+    end
+end 
+
 wat(obj) = sprint(show, Wat(obj))
 wast(obj::Module) = sprint(show, Wat(obj, true))
 
 const WC = @__MODULE__
 
-export @code_wasm, WC
+export @code_wasm, @wat_str, WC
 
 end # module WasmCompiler

@@ -20,14 +20,18 @@ using ..WasmCompiler:
     Block, If, Loop, i32_mul,
     f64_convert_i64_s, f64_sqrt, f32_sqrt,
     f64_convert_i64_u,
+    f32_load,
+    f32_add,
     br, nop, unreachable, return_, drop,
     i32, i64, f32, f64, v128
+
+const PAGE_SIZE = 65536
 
 mutable struct Memory <: AbstractVector{UInt8}
     type::MemoryType
     buf::Vector{UInt8}
 end
-Memory(type::MemoryType) = Memory(type, zeros(UInt8, type.min))
+Memory(type::MemoryType) = Memory(type, zeros(UInt8, PAGE_SIZE * type.min))
 
 Base.size(m::Memory) = size(m.buf)
 Base.getindex(m::Memory, idx...) = getindex(m.buf, idx...)
@@ -279,6 +283,11 @@ function interpret(instance, frame, expr)
             push!(frame.value_stack, Float64(pop!(frame.value_stack)::Int64))
         elseif inst isa f64_convert_i64_u
             push!(frame.value_stack, Float64(reinterpret(UInt64, pop!(frame.value_stack)::Int64)))
+        elseif inst isa f32_add
+            push!(frame.value_stack, pop!(frame.value_stack)::Float32 + pop!(frame.value_stack)::Float32)
+        elseif inst isa f32_load
+            ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            push!(frame.value_stack, reinterpret(Float32, instance.mems[1])[1 + div(ptr, sizeof(Float32))])
         elseif inst isa If
             cond = pop!(frame.value_stack)::Int32
 

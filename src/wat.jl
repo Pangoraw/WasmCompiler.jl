@@ -52,7 +52,10 @@ function _printwasm(io::IO, mod::Module)
         println(io)
         print(io, INDENT_S^indent, '(')
         _printkw(io, "memory")
-        print(io, ' ', mem.type.min, ' ', mem.type.max)
+        print(io, ' ', mem.type.min)
+        if mem.type.max < typemax(typeof(mem.type.max))
+            print(' ', mem.type.max)
+        end
         print(io, ')')
     end
 
