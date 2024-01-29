@@ -271,12 +271,12 @@ function interpret(instance, frame, expr)
             push!(frame.value_stack, Int64(Base.leading_zeros(pop!(frame.value_stack)::Int64)))
         elseif inst isa i64_ctz
             push!(frame.value_stack, Int64(Base.trailing_zeros(pop!(frame.value_stack)::Int64)))
-        elseif inst isa i64_rotl
+         elseif inst isa i64_rotl
             b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
-            push!(frame.value_stack, bitrotate(a, (b % 64)))
+            push!(frame.value_stack, bitrotate(a, mod(b, 64)))
         elseif inst isa i64_rotr
             b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
-            push!(frame.value_stack, bitrotate(a, -(b % 64)))
+            push!(frame.value_stack, bitrotate(a, -mod(b, 64)))
         elseif inst isa drop
             pop!(frame.value_stack)
         elseif inst isa f64_convert_i64_s
