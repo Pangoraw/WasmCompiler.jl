@@ -28,9 +28,9 @@ end
     mod_opt = (@code_wasm mod=true optimize=true pow(Int32(1), Int32(1))).obj
     mod_unopt = (@code_wasm mod=true optimize=false pow(Int32(1), Int32(1))).obj
 
-    size_opt = length(WC.wasm(mod_opt))
+    size_opt = length(WC.wasm(mod_opt; names=false, producers=false))
     size_unopt = length(WC.wasm(mod_unopt))
-    size_opt2 = length(WC.wasm(WC.optimize(mod_unopt)))
+    size_opt2 = length(WC.wasm(WC.optimize(mod_unopt); names=false, producers=false))
 
     ratio = (size_unopt - size_opt) / size_opt
     ratio2 = (size_unopt - size_opt2) / size_opt2

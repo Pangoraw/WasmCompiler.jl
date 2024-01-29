@@ -238,7 +238,7 @@ for (WT, T) in zip((i32, i64), (Int32, Int64))
     for f in ("clz", "ctz", "popcnt", "eqz")
         inst = Symbol(WT, "_", f)
         @eval struct $(inst) <: UnaryInst end
-        @eval inst_func_type(_, ::$(inst)) = FuncType([$WT], [$WT])
+        @eval inst_func_type(_, ::$(inst)) = FuncType([$WT], [$f == "eqz" ? i32 : $WT])
     end
 
     for f in ("add", "sub", "mul", "div_u", "div_s", "rem_u", "rem_s",

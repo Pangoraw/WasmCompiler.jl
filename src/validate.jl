@@ -25,7 +25,8 @@ function validate_fn(mod::Module, func::Func)
     end
 
     if !val.type_unreachable && val.stack != func.fntype.results
-        throw(ValidationError("invalid return value, expected $(func.fntype.results), got $(val.stack)"))
+        name = func.name
+        throw(ValidationError("$(name): invalid return value, expected $(func.fntype.results), got $(val.stack)"))
     end
 end
 
@@ -138,7 +139,7 @@ function validate_inst(val, inst)
             throw(ValidationError("type mismatch: if"))
         end
 
-        append!(val.stack, prev_stack, inst.fntype.results)
+        append!(val.stack, prev_stack)
 
         pop!(val.block_types)
     end
@@ -158,18 +159,19 @@ function validate_inst(val, inst)
         end
 
         if last(val.stack, length(inst.fntype.results)) != inst.fntype.results
-            throw(ValidationError("invalid if false branch"))
+            throw(ValidationError("$(val.func.name): invalid block"))
         end
+
         for _ in 1:length(inst.fntype.results)
             pop!(val.stack)
         end
         val.type_unreachable = false
 
         if !isempty(val.stack)
-            throw(ValidationError("type mismatch: block"))
+            throw(ValidationError("$(val.func.name): type mismatch: block"))
         end
 
-        append!(val.stack, prev_stack, inst.fntype.results)
+        append!(val.stack, prev_stack)
 
         pop!(val.block_types)
     end
@@ -250,6 +252,20 @@ inst_func_type(_, ::i64_store8) = FuncType([i32,i64], [])
 inst_func_type(_, ::i64_store16) = FuncType([i32,i64], [])
 inst_func_type(_, ::i64_store32) = FuncType([i32,i64], [])
 
+inst_func_type(_, ::i32_extend8_s) = FuncType([i32], [i32])
+inst_func_type(_, ::i32_extend16_s) = FuncType([i32], [i32])
+
+inst_func_type(_, ::i64_extend8_s) = FuncType([i64], [i64])
+inst_func_type(_, ::i64_extend16_s) = FuncType([i64], [i64])
+inst_func_type(_, ::i64_extend32_s) = FuncType([i64], [i64])
+inst_func_type(_, ::i64_extend_i32_s) = FuncType([i64], [i64])
+inst_func_type(_, ::i64_extend_i32_u) = FuncType([i64], [i64])
+
+inst_func_type(_, ::i32_reinterpret_f32) = FuncType([f32], [i32])
+inst_func_type(_, ::i64_reinterpret_f64) = FuncType([f64], [i64])
+inst_func_type(_, ::f32_reinterpret_i32) = FuncType([i32], [f32])
+inst_func_type(_, ::f64_reinterpret_i64) = FuncType([i64], [f64])
+
 inst_func_type(_, ::f32_convert_i64_s) = FuncType([i64], [f32])
 inst_func_type(_, ::f32_convert_i64_u) = FuncType([i64], [f32])
 inst_func_type(_, ::f32_convert_i32_s) = FuncType([i32], [f32])
@@ -261,6 +277,9 @@ inst_func_type(_, ::f64_convert_i64_s) = FuncType([i64], [f64])
 inst_func_type(_, ::f64_convert_i64_u) = FuncType([i64], [f64])
 inst_func_type(_, ::f64_convert_i32_s) = FuncType([i32], [f64])
 inst_func_type(_, ::f64_convert_i32_u) = FuncType([i32], [f64])
+
+inst_func_type(val, c::call) = copy(get_function_type(val.mod, c.func))
+inst_func_type(val, c::call_indirect) = copy(resolve_type(val.mod.types, c.typeidx))
 
 inst_func_type(_, b::Block) = copy(b.fntype)
 inst_func_type(_, b::Loop) = copy(b.fntype)

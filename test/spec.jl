@@ -1,6 +1,8 @@
 using WasmCompiler, Test
 
-@testset "spectest: $p"  for p in ["i32.wast"]
+const testsuite_dir = joinpath(@__DIR__, "testsuite")
+
+@testset "spectest: $(basename(p))"  for p in filter!(!contains("if"), readdir(testsuite_dir; join=true))
     sexprs = open(WC.parse_wast, p)
 
     module_ = nothing
@@ -9,6 +11,12 @@ using WasmCompiler, Test
     for ex in sexprs
         if ex isa WC.Module
             module_ = ex
+
+            @test begin
+                WC.validate(module_)
+                true
+            end
+
             inst = WC.Interpreter.instantiate(module_)
             continue
         end
@@ -33,9 +41,13 @@ using WasmCompiler, Test
             vargs = map(i -> i.val, fargs)
             exp = map(i -> i.val, expected)
 
-            @test WC.Interpreter.invoke(
-                inst, func_idx, vargs
-            ) == exp
+            wat = WC.Wat(inst.mod)
+
+            @testset let fn=name, vargs=vargs
+                @test WC.Interpreter.invoke(
+                    inst, func_idx, vargs
+                ) == exp
+            end
         end
 
     end

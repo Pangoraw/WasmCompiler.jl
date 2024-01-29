@@ -15,6 +15,7 @@ include("utils.jl")
 include("try-catch.jl")
 include("validate.jl")
 include("parser.jl")
+include("spec.jl")
 
 @testset "add" begin
     function add(a, b)
