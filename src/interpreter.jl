@@ -3,7 +3,7 @@ module Interpreter
 using ..WasmCompiler
 using ..WasmCompiler: GlobalType, Module, MemoryType, ValType, FuncType
 using ..WasmCompiler:
-    i32_const, f32_const, f64_const, f32_lt, local_get, local_set,
+    i32_const, f32_const, f64_const, f32_lt, local_get, local_set, local_tee,
     i32_eq, i32_ne, i32_lt_s, i32_lt_u, i32_le_s, i32_le_u, i32_gt_s, i32_gt_u, i32_ge_s, i32_ge_u,
     i64_eq, i64_ne, i64_lt_s, i64_lt_u, i64_le_s, i64_le_u, i64_gt_s, i64_gt_u, i64_ge_s, i64_ge_u,
     i32_eqz, i64_eqz, f64_lt, i32_sub,
@@ -22,7 +22,10 @@ using ..WasmCompiler:
     f64_convert_i64_u,
     f32_load,
     f32_add,
-    br, nop, unreachable, return_, drop,
+    i64_extend_i32_s, i64_extend_i32_u,
+    call,
+    global_set, global_get,
+    select, br, br_if, nop, unreachable, return_, drop,
     i32, i64, f32, f64, v128
 
 const PAGE_SIZE = 65536
@@ -54,13 +57,22 @@ struct Instance
 end
 
 function instantiate(module_)
-    @assert isempty(module_.globals)
-
     mems = map(module_.mems) do m
         Memory(m.type) 
     end
 
-    Instance(module_, mems, [])
+    globals = Global[]
+    inst = Instance(module_, mems, globals)
+
+    for global_ in module_.globals
+        T = jltype(global_.type.type)
+        frame = CallFrame()
+        interpret(inst, frame, global_.init)
+        init = only(frame.value_stack)::T
+        push!(globals, Global{T}(global_.type, init))
+    end
+
+    inst
 end
 
 mutable struct CallFrame
@@ -68,10 +80,11 @@ mutable struct CallFrame
     locals::Vector{Any}
     value_stack::Vector{Any}
 
-    jmp_counter::Int # increment at each block
-    jmp_target::Int  # reach jmp_counter when returning from interpret
+    jmp_counter::Int   # increment at each block
+    jmp_target::Int    # reach jmp_counter when returning from interpret
+    fall_through::Bool # for loops
 end
-CallFrame() = CallFrame(nothing, Any[], Any[], 0, 0)
+CallFrame() = CallFrame(nothing, Any[], Any[], 0, 0, false)
 
 function interpret(instance, frame, expr)
     frame.jmp_counter += 1
@@ -160,6 +173,16 @@ function interpret(instance, frame, expr)
             push!(frame.value_stack, frame.locals[inst.n])
         elseif inst isa local_set
             frame.locals[inst.n] = pop!(frame.value_stack)
+        elseif inst isa local_tee
+            frame.locals[inst.n] = last(frame.value_stack)
+        elseif inst isa global_set
+            val = pop!(frame.value_stack)
+            g = instance.globals[inst.n]
+            @assert g.type.mut
+            g.val = val
+        elseif inst isa global_get
+            g = instance.globals[inst.n]
+            push!(frame.value_stack, g.val)
         elseif inst isa i32_add
             push!(frame.value_stack, pop!(frame.value_stack)::Int32 + pop!(frame.value_stack)::Int32)
         elseif inst isa i32_sub
@@ -223,6 +246,10 @@ function interpret(instance, frame, expr)
         elseif inst isa i64_extend32_s
             x = pop!(frame.value_stack)::Int64 % Int32
             push!(frame.value_stack, Int64(x))
+        elseif inst isa i64_extend_i32_s
+            push!(frame.value_stack, Int64(pop!(frame.value_stack)::Int32))
+        elseif inst isa i64_extend_i32_u
+            push!(frame.value_stack, reinterpret(Int64, UInt64(reinterpret(UInt32, pop!(frame.value_stack)::Int32))))
         elseif inst isa i64_add
             push!(frame.value_stack, pop!(frame.value_stack)::Int64 + pop!(frame.value_stack)::Int64)
         elseif inst isa i64_sub
@@ -277,8 +304,6 @@ function interpret(instance, frame, expr)
         elseif inst isa i64_rotr
             b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
             push!(frame.value_stack, bitrotate(a, -mod(b, 64)))
-        elseif inst isa drop
-            pop!(frame.value_stack)
         elseif inst isa f64_convert_i64_s
             push!(frame.value_stack, Float64(pop!(frame.value_stack)::Int64))
         elseif inst isa f64_convert_i64_u
@@ -288,6 +313,21 @@ function interpret(instance, frame, expr)
         elseif inst isa f32_load
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
             push!(frame.value_stack, reinterpret(Float32, instance.mems[1])[1 + div(ptr, sizeof(Float32))])
+        elseif inst isa drop
+            pop!(frame.value_stack)
+        elseif inst isa select
+            cond = pop!(frame.value_stack)::Int32
+            b, a = pop!(frame.value_stack), pop!(frame.value_stack)
+            if cond != Int32(0)
+                push!(frame.value_stack, a)
+            else
+                push!(frame.value_stack, b)
+            end
+        elseif inst isa call
+            ft = WC.get_function_type(instance.mod, inst.func)
+            arguments = reverse([pop!(frame.value_stack) for _ in ft.params])
+            results = invoke(instance, inst.func, arguments)
+            append!(frame.value_stack, results)
         elseif inst isa If
             cond = pop!(frame.value_stack)::Int32
 
@@ -317,11 +357,19 @@ function interpret(instance, frame, expr)
                 if current_stack > frame.jmp_target
                     frame.jmp_counter = current_stack - 1
                     return
-                elseif current_stack == frame.jmp_target
+                elseif current_stack == frame.jmp_target && !frame.fall_through
+                    frame.fall_through = false
                     continue
                 else
                     break
                 end
+            end
+
+            if current_stack > frame.jmp_target
+                frame.jmp_counter = current_stack - 1
+                return
+            elseif current_stack == frame.jmp_target
+                # ok
             end
         elseif inst isa Block
 
@@ -339,9 +387,18 @@ function interpret(instance, frame, expr)
             empty!(frame.value_stack)
             append!(frame.value_stack, values)
             frame.jmp_target = -1
+            frame.fall_through = false
             return
+        elseif inst isa br_if
+            cond = pop!(frame.value_stack)::Int32
+            if cond !== Int32(0)
+                frame.jmp_target = current_stack - inst.label - 1
+                frame.fall_through = false
+                return
+            end
         elseif inst isa br
             frame.jmp_target = current_stack - inst.label - 1
+            frame.fall_through = false
             return
         elseif inst isa nop
             # pass
@@ -355,6 +412,7 @@ function interpret(instance, frame, expr)
     # Simulate (br 0)
     frame.jmp_target = current_stack - 1
     frame.jmp_counter = current_stack - 1
+    frame.fall_through = true
 
     return
 end
@@ -381,7 +439,7 @@ function invoke(instance, name, args)
     frame = CallFrame(
         func.fntype,
         Any[zero(jltype(v)) for v in func.locals],
-        Any[], 0, 0,
+        Any[], 0, 0, false,
     )
     for (i, (T,arg)) in enumerate(zip(func.fntype.params, args))
         @assert arg isa jltype(T) "invalid argument #$i of type $(typeof(arg)), wanted $(T)"

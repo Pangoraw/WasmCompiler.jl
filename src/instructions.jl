@@ -228,6 +228,7 @@ for (WT, T) in zip((i32, i64), (Int32, Int64))
         memarg::MemArg
     end
     @eval $load_s() = $load_s(MemArg())
+    @eval inst_func_type(_, ::$load_s) = FuncType([i32], [$WT])
 
     store_s = Symbol(WT, "_store")
     @eval struct $store_s <: Inst

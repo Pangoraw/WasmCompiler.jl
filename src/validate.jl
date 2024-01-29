@@ -15,7 +15,10 @@ end
 
 Base.showerror(io::IO, ve::ValidationError) = print(io, ve.msg)
 
-validate(mod) = foreach(fn -> validate_fn(mod, fn), mod.funcs)
+function validate(mod)
+    foreach(fn -> validate_fn(mod, fn), mod.funcs)
+    mod
+end
 
 function validate_fn(mod::Module, func::Func)
     val = FnValidator(mod, func, func.fntype, false, ValType[], FuncType[])
@@ -26,7 +29,7 @@ function validate_fn(mod::Module, func::Func)
 
     if !val.type_unreachable && val.stack != func.fntype.results
         name = func.name
-        throw(ValidationError("$(name): invalid return value, expected $(func.fntype.results), got $(val.stack)"))
+        throw(ValidationError("$(name): type mismatch: invalid return value, expected $(func.fntype.results), got $(val.stack)"))
     end
 end
 
@@ -90,7 +93,7 @@ function validate_inst(val, inst)
         throw(ValidationError("type mismatch: expected $(fntype.params) but got $stack_values on the stack for $inst"))
     end
 
-    if inst isa global_set && !global_type(mod, inst.n).mut
+    if inst isa global_set && !global_type(val.mod, inst.n).mut
         throw(ValidationError("setting value to immutable global $(inst.n)"))
     end
 
@@ -109,11 +112,15 @@ function validate_inst(val, inst)
             validate_inst(val, cinst)
         end
 
-        if last(val.stack, length(inst.fntype.results)) != inst.fntype.results
-            throw(ValidationError("invalid if true branch"))
-        end
-        for _ in 1:length(inst.fntype.results)
-            pop!(val.stack)
+        if val.type_unreachable
+            empty!(val.stack)
+        else
+            if last(val.stack, length(inst.fntype.results)) != inst.fntype.results
+                throw(ValidationError("type mismatch: invalid if true branch"))
+            end
+            for _ in 1:length(inst.fntype.results)
+                pop!(val.stack)
+            end
         end
         val.type_unreachable = false
 
@@ -127,11 +134,15 @@ function validate_inst(val, inst)
             validate_inst(val, cinst)
         end
 
-        if last(val.stack, length(inst.fntype.results)) != inst.fntype.results
-            throw(ValidationError("invalid if false branch"))
-        end
-        for _ in 1:length(inst.fntype.results)
-            pop!(val.stack)
+        if val.type_unreachable
+            empty!(val.stack)
+        else
+            if last(val.stack, length(inst.fntype.results)) != inst.fntype.results
+                throw(ValidationError("type mismatch: invalid if false branch"))
+            end
+            for _ in 1:length(inst.fntype.results)
+                pop!(val.stack)
+            end
         end
         val.type_unreachable = false
 
@@ -158,12 +169,16 @@ function validate_inst(val, inst)
             validate_inst(val, cinst)
         end
 
-        if last(val.stack, length(inst.fntype.results)) != inst.fntype.results
-            throw(ValidationError("$(val.func.name): invalid block"))
-        end
+        if val.type_unreachable
+            empty!(val.stack)
+        else
+            if last(val.stack, length(inst.fntype.results)) != inst.fntype.results
+                throw(ValidationError("$(val.func.name): type mismatch: invalid"))
+            end
 
-        for _ in 1:length(inst.fntype.results)
-            pop!(val.stack)
+            for _ in 1:length(inst.fntype.results)
+                pop!(val.stack)
+            end
         end
         val.type_unreachable = false
 
@@ -176,7 +191,9 @@ function validate_inst(val, inst)
         pop!(val.block_types)
     end
 
-    if val.type_unreachable
+    if inst isa return_ || inst isa br
+        val.type_unreachable = true
+    else
         val.type_unreachable = false
     end
 
@@ -205,10 +222,10 @@ function inst_func_type(val, bt::br_table)
     FuncType([bt.params..., i32], [])
 end
 
-inst_func_type(val, b::br) = FuncType(copy(val.block_types[end-b.label].params), [])
+inst_func_type(val, b::br) = FuncType(copy(val.block_types[end-b.label].results), [])
 function inst_func_type(val, b::br_if)
     bt = val.block_types[end-b.label]
-    FuncType([bt.params..., i32], [])
+    FuncType([bt.results..., i32], [bt.results...])
 end
 
 inst_func_type(_, ::i32_store) = FuncType([i32,i32], [])
@@ -258,8 +275,8 @@ inst_func_type(_, ::i32_extend16_s) = FuncType([i32], [i32])
 inst_func_type(_, ::i64_extend8_s) = FuncType([i64], [i64])
 inst_func_type(_, ::i64_extend16_s) = FuncType([i64], [i64])
 inst_func_type(_, ::i64_extend32_s) = FuncType([i64], [i64])
-inst_func_type(_, ::i64_extend_i32_s) = FuncType([i64], [i64])
-inst_func_type(_, ::i64_extend_i32_u) = FuncType([i64], [i64])
+inst_func_type(_, ::i64_extend_i32_s) = FuncType([i32], [i64])
+inst_func_type(_, ::i64_extend_i32_u) = FuncType([i32], [i64])
 
 inst_func_type(_, ::i32_reinterpret_f32) = FuncType([f32], [i32])
 inst_func_type(_, ::i64_reinterpret_f64) = FuncType([f64], [i64])
@@ -279,7 +296,12 @@ inst_func_type(_, ::f64_convert_i32_s) = FuncType([i32], [f64])
 inst_func_type(_, ::f64_convert_i32_u) = FuncType([i32], [f64])
 
 inst_func_type(val, c::call) = copy(get_function_type(val.mod, c.func))
-inst_func_type(val, c::call_indirect) = copy(resolve_type(val.mod.types, c.typeidx))
+function inst_func_type(val, c::call_indirect)
+    t = resolve_type(val.mod.types, c.typeidx)
+    FuncType([i32, t.params...], copy(t.results))
+end
+
+inst_func_type(_, ::memory_grow) = FuncType([i32], [i32])
 
 inst_func_type(_, b::Block) = copy(b.fntype)
 inst_func_type(_, b::Loop) = copy(b.fntype)

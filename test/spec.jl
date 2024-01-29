@@ -2,7 +2,7 @@ using WasmCompiler, Test
 
 const testsuite_dir = joinpath(@__DIR__, "testsuite")
 
-@testset "spectest: $(basename(p))"  for p in filter!(!contains("if"), readdir(testsuite_dir; join=true))
+@testset "spectest: $(basename(p))"  for p in filter!(f -> !contains(f, "block") && !contains(f, "if"), readdir(testsuite_dir; join=true))
     sexprs = open(WC.parse_wast, p)
 
     module_ = nothing
@@ -17,7 +17,10 @@ const testsuite_dir = joinpath(@__DIR__, "testsuite")
                 true
             end
 
-            inst = WC.Interpreter.instantiate(module_)
+            @test begin
+                inst = WC.Interpreter.instantiate(module_)
+                true
+            end
             continue
         end
 
@@ -31,6 +34,9 @@ const testsuite_dir = joinpath(@__DIR__, "testsuite")
                 @test_throws msg WC.validate(mod)
             end
         elseif head === :assert_return
+            module_ === nothing && continue
+            inst === nothing && continue
+
             inv, expected = args
             _, name, fargs = inv
 

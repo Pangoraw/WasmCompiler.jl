@@ -139,17 +139,29 @@ function read_number(io::IO)
         end
     end
 
+    decimal = 0
+
     n = 0
     c = peek(io, Char)
     while !eof(io) && (numberstart(c) || (base == 16 && (c ∈ ('a':'f') ∪ ('A':'F'))) || c == '.' || c == '_')
         if c == '.'
-            error("unimplemented")
+            decimal > 0 && error("invalid token '.' at $(position(io))")
+            decimal = 1
+            read(io, Char)
+            c = peek(io, Char)
+            continue
         elseif c == '_'
             read(io, Char)
             c = peek(io, Char)
             continue
         end
-        n = base * n + parse(Int,c;base)
+        d = parse(Int,c;base)
+        if decimal > 0
+            n = n + d * Float64(base)^-decimal
+            decimal += 1
+        else
+            n = base * n + d
+        end
         read(io, Char)
         eof(io) && break
         c = peek(io, Char)
@@ -462,13 +474,22 @@ function make_inst!(inst, ex, ctx)
         push!(inst, Loop(fntype, newinst))
     elseif head === :block
         fntype = parse_functype!(args, ctx)
+        if length(args) >= 1 && first(args) isa Symbol && startswith(string(first(args)), '$')
+            push!(ctx.labels, popfirst!(args))
+        else
+            push!(ctx.labels, nothing)
+        end
         newinst = Inst[]
         make_inst!(newinst, args, ctx)
+        pop!(ctx.labels)
         push!(inst, Block(fntype, newinst))
     elseif isdefined(WC, head) && getproperty(WC, head) <: Inst
         make_inst!(inst, args, ctx)
         push!(inst, getproperty(WC, head)())
     else
+        if startswith(string(head), '$')
+            error("invalid label $head")
+        end
         error("invalid head $head")
     end
 end
@@ -617,6 +638,9 @@ function make_module!(mod, exprs)
             FuncExport(name, _resolve_func(ctx, fname))
         elseif issexpr(only(args), :memory)
             MemExport(name, 1+last(only(args)))
+        elseif issexpr(only(args), :global)
+            gname = last(only(args))
+            GlobalExport(name, _resolve_global(ctx, gname))
         else
             error("cannot export $args")
         end
