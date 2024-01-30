@@ -360,27 +360,23 @@ function interpret(instance, frame, expr)
         elseif inst isa i32_store
             val = pop!(frame.value_stack)::Int32
             ptr = pop!(frame.value_stack)::Int32
-            mem = instance.mems[1]
-            buf = reinterpret(Int32, mem.buf)
-            buf[1 + div(ptr, sizeof(Int32))] = val
+            buf = instance.mems[1].buf
+            unsafe_store!(Ptr{Int32}(pointer(buf, 1 + ptr)), val)
         elseif inst isa i64_store
             val = pop!(frame.value_stack)::Int64
             ptr = pop!(frame.value_stack)::Int32
-            mem = instance.mems[1]
-            buf = reinterpret(Int32, mem.buf)
-            buf[1 + div(ptr, sizeof(Int64))] = val
+            buf = instance.mems[1].buf
+            unsafe_store!(Ptr{Int64}(pointer(buf, 1 + ptr)), val)
         elseif inst isa f32_store
             val = pop!(frame.value_stack)::Float32
             ptr = pop!(frame.value_stack)::Int32
-            mem = instance.mems[1]
-            buf = reinterpret(Float32, mem.buf)
-            buf[1 + div(ptr, sizeof(Float32))] = val
+            buf = instance.mems[1].buf
+            unsafe_store!(Ptr{Int64}(pointer(buf, 1 + ptr)), val)
         elseif inst isa f64_store
             val = pop!(frame.value_stack)::Float64
             ptr = pop!(frame.value_stack)::Int32
-            mem = instance.mems[1]
-            buf = reinterpret(Float64, mem.buf)
-            buf[1 + div(ptr, sizeof(Float64))] = val
+            buf = instance.mems[1].buf
+            unsafe_store!(Ptr{Float64}(pointer(buf, 1 + ptr)), val)
         elseif inst isa i32_store8
             val = pop!(frame.value_stack)::Int32
             ptr = pop!(frame.value_stack)::Int32
@@ -390,8 +386,8 @@ function interpret(instance, frame, expr)
             val = pop!(frame.value_stack)::Int32
             ptr = pop!(frame.value_stack)::Int32
             mem = instance.mems[1]
-            buf = reinterpret(Int16, mem.buf)
-            buf[1 + div(ptr, sizeof(Int16))] = val
+            buf = instance.mems[1].buf
+            unsafe_store!(Ptr{Int16}(pointer(buf, 1 + ptr)), val % Int16)
         elseif inst isa i64_store8
             val = pop!(frame.value_stack)::Int64
             ptr = pop!(frame.value_stack)::Int32
@@ -400,15 +396,13 @@ function interpret(instance, frame, expr)
         elseif inst isa i64_store16
             val = pop!(frame.value_stack)::Int64
             ptr = pop!(frame.value_stack)::Int32
-            mem = instance.mems[1]
-            buf = reinterpret(Int16, mem.buf)
-            buf[1 + div(ptr, sizeof(Int16))] = val
+            buf = instance.mems[1].buf
+            unsafe_store!(Ptr{Int16}(pointer(buf, 1 + ptr)), val % Int16)
         elseif inst isa i64_store32
             val = pop!(frame.value_stack)::Int64
             ptr = pop!(frame.value_stack)::Int32
-            mem = instance.mems[1]
-            buf = reinterpret(Int32, mem.buf)
-            buf[1 + div(ptr, sizeof(Int32))] = val
+            buf = instance.mems[1].buf
+            unsafe_store!(Ptr{Int32}(pointer(buf, 1 + ptr)), val % Int32)
         elseif inst isa drop
             pop!(frame.value_stack)
         elseif inst isa select
