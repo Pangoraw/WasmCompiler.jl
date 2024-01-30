@@ -35,7 +35,7 @@ using ..WasmCompiler:
 
 const PAGE_SIZE = 65536
 
-mutable struct Memory <: AbstractVector{UInt8}
+struct Memory <: AbstractVector{UInt8}
     type::MemoryType
     buf::Vector{UInt8}
 end
@@ -50,10 +50,6 @@ mutable struct Global{T}
     val::T
 end
 
-mutable struct Store
-    mems::Vector{Memory}
-end
-
 struct Instance
     mod::Module
 
@@ -61,9 +57,14 @@ struct Instance
     globals::Vector{Global}
 end
 
-function instantiate(module_)
-    mems = map(module_.mems) do m
-        Memory(m.type) 
+function instantiate(module_, imports=Dict{String,Any}())
+    mems = if any(imp -> imp isa WC.MemoryImport, module_.imports)
+        mem_name = module_.imports[findfirst(imp -> imp isa WC.MemoryImport, module_.imports)]
+        Memory[imports[mem_name]]
+    else
+        map(module_.mems) do m
+            Memory(m.type)
+        end
     end
 
     globals = Global[]
@@ -79,6 +80,26 @@ function instantiate(module_)
 
     inst
 end
+
+abstract type Trap <: Exception end
+
+struct OutOfBoundsError <: Trap
+    addr::Int
+    mem_length::Int
+end
+
+Base.showerror(io::IO, e::OutOfBoundsError) = print(io, "trap: address $(e.addr) is out of bound for memory of size $(e.mem_length)")
+
+struct UnreachableReached <: Trap end
+
+Base.showerror(io::IO, ::UnreachableReached) = print(io, "trap: unreachable")
+
+function check_inbounds(mem, ptr)
+    if ptr < 0 || ptr >= length(mem)
+        throw(OutOfBoundsError(ptr, length(mem)))
+    end
+end
+
 
 mutable struct CallFrame
     fntype::Union{Nothing,FuncType}
@@ -317,90 +338,113 @@ function interpret(instance, frame, expr)
             push!(frame.value_stack, pop!(frame.value_stack)::Float32 + pop!(frame.value_stack)::Float32)
         elseif inst isa i32_load
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            check_inbounds(ptr, instance.mems[1])
             push!(frame.value_stack, reinterpret(Int32, instance.mems[1+ptr:sizeof(Int32)+ptr])[1])
         elseif inst isa i64_load
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            check_inbounds(ptr, instance.mems[1])
             push!(frame.value_stack, reinterpret(Int64, instance.mems[1+ptr:sizeof(Int64)+ptr])[1])
         elseif inst isa f32_load
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            check_inbounds(ptr, instance.mems[1])
             push!(frame.value_stack, reinterpret(Float32, instance.mems[1+ptr:sizeof(Float32)+ptr])[1])
         elseif inst isa f64_load
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            check_inbounds(ptr, instance.mems[1])
             push!(frame.value_stack, reinterpret(Float64, instance.mems[1+ptr:sizeof(Float64)+ptr])[1])
         elseif inst isa i32_load8_s
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            check_inbounds(ptr, instance.mems[1])
             push!(frame.value_stack, Int32(reinterpret(Int8, instance.mems[1][1 + ptr])))
         elseif inst isa i32_load8_u
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            check_inbounds(ptr, instance.mems[1])
             push!(frame.value_stack, Int32(instance.mems[1][1 + ptr]))
         elseif inst isa i32_load16_s
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            check_inbounds(ptr, instance.mems[1])
             push!(frame.value_stack, Int32(reinterpret(Int16, @view instance.mems[1].buf[1+ptr:sizeof(Int16)+ptr])[1]))
         elseif inst isa i32_load16_u
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            check_inbounds(ptr, instance.mems[1])
             push!(frame.value_stack, Int32(reinterpret(UInt16, @view instance.mems[1].buf[1+ptr:sizeof(Int16)+ptr])[1]))
         elseif inst isa i64_load8_s
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            check_inbounds(ptr, instance.mems[1])
             push!(frame.value_stack, Int64(reinterpret(Int8, instance.mems[1][1 + ptr])))
         elseif inst isa i64_load8_u
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            check_inbounds(ptr, instance.mems[1])
             push!(frame.value_stack, Int64(instance.mems[1][1 + ptr]))
         elseif inst isa i64_load16_s
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            check_inbounds(ptr, instance.mems[1])
             push!(frame.value_stack, Int64(reinterpret(Int16, instance.mems[1+ptr:sizeof(Int16)+ptr])[1]))
         elseif inst isa i64_load16_u
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            check_inbounds(ptr, instance.mems[1])
             push!(frame.value_stack, Int64(reinterpret(UInt16, instance.mems[1+ptr:sizeof(UInt16)+ptr])[1]))
         elseif inst isa i64_load32_s
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            check_inbounds(ptr, instance.mems[1])
             push!(frame.value_stack, Int64(reinterpret(Int32, instance.mems[1+ptr:sizeof(Int32)+ptr])[1]))
         elseif inst isa i64_load32_u
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            check_inbounds(ptr, instance.mems[1])
             push!(frame.value_stack, Int64(reinterpret(UInt32, instance.mems[1+ptr:sizeof(UInt32)+ptr])[1]))
         elseif inst isa i32_store
             val = pop!(frame.value_stack)::Int32
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            check_inbounds(ptr, instance.mems[1])
             buf = instance.mems[1].buf
             reinterpret(Int32, @view buf[1+ptr:sizeof(Int32)+ptr])[1] = val
         elseif inst isa i64_store
             val = pop!(frame.value_stack)::Int64
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            check_inbounds(ptr, instance.mems[1])
             buf = instance.mems[1].buf
             reinterpret(Int64, @view buf[1+ptr:sizeof(Int64)+ptr])[1] = val
         elseif inst isa f32_store
             val = pop!(frame.value_stack)::Float32
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            check_inbounds(ptr, instance.mems[1])
             buf = instance.mems[1].buf
             reinterpret(Int64, @view buf[1+ptr:sizeof(Int64)+ptr])[1] = val
         elseif inst isa f64_store
             val = pop!(frame.value_stack)::Float64
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            check_inbounds(ptr, instance.mems[1])
             buf = instance.mems[1].buf
             reinterpret(Float64, @view buf[1+ptr:sizeof(Float64)+ptr])[1] = val
         elseif inst isa i32_store8
             val = pop!(frame.value_stack)::Int32
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            check_inbounds(ptr, instance.mems[1])
             mem = instance.mems[1]
             mem.buf[1 + ptr] = val
         elseif inst isa i32_store16
             val = pop!(frame.value_stack)::Int32
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            check_inbounds(ptr, instance.mems[1])
             mem = instance.mems[1]
             buf = instance.mems[1].buf
             reinterpret(Int16, @view buf[1+ptr:sizeof(Int16)+ptr])[1] = val % Int16
         elseif inst isa i64_store8
             val = pop!(frame.value_stack)::Int64
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            check_inbounds(ptr, instance.mems[1])
             mem = instance.mems[1]
             mem.buf[1 + ptr] = val
         elseif inst isa i64_store16
             val = pop!(frame.value_stack)::Int64
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            check_inbounds(ptr, instance.mems[1])
             buf = instance.mems[1].buf
             reinterpret(Int16, @view buf[1+ptr:sizeof(Int16)+ptr])[1] = val % Int16
         elseif inst isa i64_store32
             val = pop!(frame.value_stack)::Int64
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            check_inbounds(ptr, instance.mems[1])
             buf = instance.mems[1].buf
             reinterpret(Int32, @view buf[1+ptr:sizeof(Int32)+ptr])[1] = val % Int32
         elseif inst isa drop
@@ -499,17 +543,13 @@ function interpret(instance, frame, expr)
         end
     end
 
-    # Simulate (br 0)
+    # Simulate (br 0) but with fall through = true
     frame.jmp_target = current_stack - 1
     frame.jmp_counter = current_stack - 1
     frame.fall_through = true
 
     return
 end
-
-struct UnreachableReached <: Exception end
-
-Base.showerror(io::IO, ::UnreachableReached) = print(io, "trap: unreachable")
 
 jltype(valtype) = if valtype == i32
     Int32
