@@ -19,7 +19,7 @@ end
 
     wpow = Wasmtime.exports(instance).pow
 
-    inst = WC.Interpreter.instantiate(wmodule)
+    inst = WC.Interpreter.instantiate(wmod)
     
     for p in [(3, 4), (0, 1), (1, 0), (2, 8)]
         x, n = Int32.(p)
