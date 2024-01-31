@@ -50,25 +50,36 @@ mutable struct Global{T}
     val::T
 end
 
+struct FuncRef
+    inst::Instance
+    idx::UInt32
+end
+
+function (fr::FuncRef)(args...)
+    invoke(fr.inst, fr.idx, collect(args))
+end
+
 struct Instance
     mod::Module
 
+    imported_funcs::Vector{Any}
     mems::Vector{Memory}
     globals::Vector{Global}
 end
 
-function instantiate(module_, imports=Dict{String,Any}())
+function instantiate(module_, imports=(;))
     mems = if any(imp -> imp isa WC.MemoryImport, module_.imports)
-        mem_name = module_.imports[findfirst(imp -> imp isa WC.MemoryImport, module_.imports)]
-        Memory[imports[mem_name]]
+        mem_import = module_.imports[findfirst(imp -> imp isa WC.MemoryImport, module_.imports)]
+        Memory[imports[mem_import.mod_name][mem_import.name]]
     else
-        map(module_.mems) do m
-            Memory(m.type)
-        end
+        map(m -> Memory(m.type), module_.mems)
     end
 
+    imported_funcs = map(imp -> imports[imp.mod_name][imp.name],
+                         filter(imp -> imp isa FuncImport, module_.imports))
+
     globals = Global[]
-    inst = Instance(module_, mems, globals)
+    inst = Instance(module_, imported_funcs, mems, globals)
 
     for global_ in module_.globals
         T = jltype(global_.type.type)
@@ -563,8 +574,15 @@ else
     error("invalid valtype $valtype")
 end
 
-function invoke(instance, name, args)
-    func = instance.mod.funcs[name]
+function invoke(instance, idx, args)
+    num_imports = count(imp -> imp isa WC.FuncImport, instance.mod.imports)
+
+    if idx <= num_imports
+        return instance.imported_funcs[idx](args...)
+    end
+
+    idx -= num_imports
+    func = instance.mod.funcs[idx]
 
     frame = CallFrame(
         func.fntype,
