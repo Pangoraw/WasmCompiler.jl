@@ -74,6 +74,7 @@ macro code_wasm(exprs...)
     optimize = get(dopts, :optimize, false)
     wmod = get(dopts, :mod, false)
     debug = get(dopts, :debug, false)
+    validate = get(dopts, :validate, false)
     if wmod !== false || !(optimize isa Bool) || print_sexpr
         quote
             types = Tuple{map(Core.Typeof, $(args))...}
@@ -91,6 +92,10 @@ macro code_wasm(exprs...)
                 WasmCompiler.export!(module_, string(nameof($f)), num_funcs + 1)
             end
 
+            if $(esc(validate)) !== false
+                WC.validate(module_)
+            end
+            
             if $(esc(optimize)) !== false
                 lvl = !($(esc(optimize)) isa Int) ? 1 : $(esc(optimize))
                 module_ = WasmCompiler.optimize!(module_, lvl)
@@ -99,6 +104,7 @@ macro code_wasm(exprs...)
             if $(esc(optimize)) === :binaryen
                 module_ = WasmCompiler.optimize(module_; debug=$debug)
             end
+
             Wat(module_, $(print_sexpr))
         end
     else
