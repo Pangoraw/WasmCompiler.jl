@@ -76,6 +76,26 @@ function validate_inst(val, inst)
         return
     end
 
+    # Validate that module has a memory
+    if inst isa Union{i32_load, i64_load, f32_load, f64_load,
+                      i32_load8_s, i32_load8_u, i32_load16_s, i32_load16_u,
+                      i64_load8_s, i64_load8_u, i64_load16_s, i64_load16_u,
+                      i64_load32_s, i64_load32_u,
+                      i32_store, i64_store, f32_store, f64_store,
+                      i32_store8, i32_store16, i64_store8, i64_store16, i64_store32,
+                      memory_copy, memory_grow}
+        if isempty(val.mod.mems) && !any(imp -> imp isa MemImport, val.mod.imports)
+            inst_ = sprint(WC._printwasm, inst)
+            throw(ValidationError("$inst_ requires a memory"))
+        end
+
+        if !(inst isa memory_copy || inst isa memory_grow)
+            if inst.memarg.offset < 0
+                throw(ValidationError("invalid offset $(inst.memarg.offset)"))
+            end            
+        end
+    end
+
     fntype = inst_func_type(val, inst)
 
     # WC._printwasm(stdout, inst)
