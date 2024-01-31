@@ -46,8 +46,22 @@ Base.getindex(m::Memory, idx...) = getindex(m.buf, idx...)
 Base.setindex!(m::Memory, val, idx...) = setindex!(m.buf, val, idx...)
 
 mutable struct Global{T}
-    type::GlobalType
+    const type::GlobalType
     val::T
+end
+
+function Base.setindex!(g::Global{T}, v::T) where {T}
+    @assert g.type.mut
+    g.val = v
+end
+Base.getindex(g::Global) = g.val
+
+struct Instance
+    mod::Module
+
+    imported_funcs::Vector{Any}
+    mems::Vector{Memory}
+    globals::Vector{Global}
 end
 
 struct FuncRef
@@ -59,12 +73,18 @@ function (fr::FuncRef)(args...)
     invoke(fr.inst, fr.idx, collect(args))
 end
 
-struct Instance
-    mod::Module
-
-    imported_funcs::Vector{Any}
-    mems::Vector{Memory}
-    globals::Vector{Global}
+function exports(instance)
+    exports = Dict{Symbol,Any}()
+    for exp in instance.mod.exports
+        if exp isa FuncExport
+            exports[Symbol(exp.name)] = FuncRef(instance, idx)
+        elseif exp isa MemoryExport
+            exports[Symbol(exp.name)] = instance.mems[exp.mem]
+        elseif exp isa GlobalExport
+            exports[Symbol(exp.name)] = instance.globals[exp.globalidx]
+        end
+    end
+    NamedTuple(exports)
 end
 
 function instantiate(module_, imports=(;))
