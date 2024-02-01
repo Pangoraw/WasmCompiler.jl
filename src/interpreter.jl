@@ -76,7 +76,11 @@ struct FuncRef
 end
 
 function (fr::FuncRef)(args...)
-    invoke(fr.inst, fr.idx, collect(args))
+    ft = WC.get_function_type(instance.mod, inst.func)
+    results = invoke(fr.inst, fr.idx, collect(args))
+    isempty(ft.results) && return nothing
+    length(ft.results) == 1 && return only(results)
+    return results
 end
 
 function exports(instance)
@@ -684,7 +688,15 @@ function invoke(instance, idx, args)
     num_imports = count(imp -> imp isa WC.FuncImport, instance.mod.imports)
 
     if idx <= num_imports
-        return instance.imported_funcs[idx](args...)
+        result = instance.imported_funcs[idx](args...)
+        ft = WC.get_function_type(instance.mod, inst.func)
+        if isempty(ft.results)
+            return Any[]
+        elseif length(ft.results) == 1
+            return Any[result]
+        else
+            return result
+        end
     end
 
     idx -= num_imports
@@ -703,13 +715,7 @@ function invoke(instance, idx, args)
     interpret(instance, frame, func.inst)
 
     results = last(frame.value_stack, length(func.fntype.results))
-    if isempty(results)
-        nothing
-    elseif length(results) == 1
-        only(results)
-    else
-        results
-    end
+    results
 end
 
 end # module Interpreter
