@@ -1069,10 +1069,10 @@ function emit_codes(ctx, ir, rt, nargs)
                                        local_set(getlocal!(ssa)))
                     continue
                 elseif f isa Function && nameof(f) === :T_store && parentmodule(f) == Main
-                    targ,arg1,arg2 = inst.args[begin+1:end]
+                    arg1,arg2 = inst.args[begin+2:end]
                     emit_val!(exprs[bidx], arg1)
                     emit_val!(exprs[bidx], arg2)
-                    push!(exprs[bidx], targ == Float32 ? f32_store() : v128_store())
+                    push!(exprs[bidx], store_op(jltype(arg2))())
                     continue
                 elseif f isa Function && nameof(f) === :_wasmcall && parentmodule(f) == Main
                     _,insts,ops... = inst.args[begin+2:end]
@@ -1381,7 +1381,7 @@ function emit_func!(ctx, types)
 
         # Add a memory and export it
         if has_mem_inst
-            push!(ctx.mod.mems, Mem(MemoryType(0,32_000)))
+            push!(ctx.mod.mems, Mem(MemoryType(1,32_000)))
             push!(ctx.mod.exports, MemExport("memory", 1))
         end
     end

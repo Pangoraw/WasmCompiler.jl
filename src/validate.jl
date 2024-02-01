@@ -248,9 +248,10 @@ function inst_func_type(val, b::br_if)
     FuncType([bt.results..., i32], [bt.results...])
 end
 
-inst_func_type(_, ::i32_store) = FuncType([i32,i32], [])
 inst_func_type(_, ::v128_store) = FuncType([i32,v128], [])
+inst_func_type(_, ::v128_load) = FuncType([i32], [v128])
 
+inst_func_type(_, ::v128bin) = FuncType([v128, v128], [v128])
 inst_func_type(_, s::v128replace_lane) = if s.lane <= Lanes.i32
     FuncType([v128,i32], [v128])
 elseif s.lane == Lanes.f32
@@ -291,6 +292,10 @@ inst_func_type(_, ::i64_store32) = FuncType([i32,i64], [])
 
 inst_func_type(_, ::i32_extend8_s) = FuncType([i32], [i32])
 inst_func_type(_, ::i32_extend16_s) = FuncType([i32], [i32])
+
+inst_func_type(_, ::i32_wrap_i64) = FuncType([i64], [i32])
+inst_func_type(_, ::f32_demote_f64) = FuncType([f64], [f32])
+inst_func_type(_, ::f64_promote_f32) = FuncType([f32], [f64])
 
 inst_func_type(_, ::i64_extend8_s) = FuncType([i64], [i64])
 inst_func_type(_, ::i64_extend16_s) = FuncType([i64], [i64])

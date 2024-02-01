@@ -89,7 +89,7 @@ end
 FuncContext(mod=nothing) = FuncContext(mod, Dict{Symbol,Int}(), Dict{Symbol,Int}(), Dict{Symbol,Int}(), Dict{Symbol,Int}(), Symbol[])
 
 symstart(c) = validchar(c) && c ∉ '0':'9' && c != '-'
-validchar(c) = c ∈ (('a':'z') ∪ ('A':'Z') ∪ ('0':'9')) || c == '_' || c == '.' || c == '$' || c == '-'
+validchar(c) = c ∈ (('a':'z') ∪ ('A':'Z') ∪ ('0':'9')) || c == '_' || c == '.' || c == '$' || c == '-' || c == '!'
 numberstart(c) = c ∈ '0':'9' || c == '-'
 
 function read_sym(io::IO)
@@ -581,13 +581,13 @@ function make_module!(mod, exprs)
             name = nothing
             if first(args) isa Symbol
                 name, rest... = args
+                rest = only(rest)
+            elseif length(args) >= 1 && issexpr(first(args), :func)
+                rest = only(args)
+                popfirst!(rest)
             else
                 rest = args
             end
-            rest = only(rest)
-
-
-            @assert popfirst!(rest) === :func
 
             t = parse_functype!(rest, FuncContext(mod))
             push!(mod.types, t)

@@ -20,10 +20,10 @@ end
     wpow = Wasmtime.exports(instance).pow
 
     inst = WC.Interpreter.instantiate(wmod)
-    
+
     for p in [(3, 4), (0, 1), (1, 0), (2, 8)]
         x, n = Int32.(p)
-        interp_result = WC.Interpreter.invoke(inst, 1, Any[x, n]) |> only
+        interp_result = WC.Interpreter.exports(inst).pow(x, n) |> only
         expected_result = pow(x, n)
         @test convert(Int32, only(wpow(x, n))) == expected_result
         @test interp_result == expected_result

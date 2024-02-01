@@ -54,7 +54,7 @@ function _printwasm(io::IO, mod::Module)
         _printkw(io, "memory")
         print(io, ' ', mem.type.min)
         if mem.type.max < typemax(typeof(mem.type.max))
-            print(' ', mem.type.max)
+            print(io, ' ', mem.type.max)
         end
         print(io, ')')
     end
