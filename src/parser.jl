@@ -501,6 +501,11 @@ function make_inst!(inst, ex, ctx)
         push!(inst, If(fntype, trueinst, falseinst))
     elseif head === :loop
         fntype = parse_functype!(args, ctx)
+        if length(args) >= 1 && first(args) isa Symbol && startswith(string(first(args)), '$')
+            push!(ctx.labels, popfirst!(args))
+        else
+            push!(ctx.labels, nothing)
+        end
         newinst = Inst[]
         make_inst!(newinst, args, ctx)
         push!(inst, Loop(fntype, newinst))
@@ -580,9 +585,10 @@ function make_module!(mod, exprs)
         elseif head === :type
             name = nothing
             if first(args) isa Symbol
-                name, rest... = args
-                rest = only(rest)
-            elseif length(args) >= 1 && issexpr(first(args), :func)
+                name = popfirst!(args)
+            end
+
+            if length(args) >= 1 && issexpr(first(args), :func)
                 rest = only(args)
                 popfirst!(rest)
             else
@@ -711,15 +717,14 @@ function parse_wast(io::IO)
             inst = Inst[]
             ctx = FuncContext(nothing)
 
-            if length(args) == 2
-                make_inst!(inst, args[2], ctx)
+            if length(args) >= 2
+                make_inst!(inst, args[2:end], ctx)
             end
 
             inv, name, fargs... = args[1]
 
             vargs = Inst[]
             make_inst!(vargs, fargs, ctx)
-
 
             push!(results, [:assert_return, Any[inv,name,vargs], inst])
         elseif head === :assert_invalid

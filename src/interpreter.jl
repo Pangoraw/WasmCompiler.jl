@@ -36,7 +36,7 @@ using ..WasmCompiler:
     i64_extend_i32_s, i64_extend_i32_u,
     call,
     global_set, global_get,
-    select, br, br_if, nop, unreachable, return_, drop,
+    select, br, br_if, br_table, nop, unreachable, return_, drop,
     i32, i64, f32, f64, v128
 
 const PAGE_SIZE = 65536
@@ -76,7 +76,7 @@ struct FuncRef
 end
 
 function (fr::FuncRef)(args...)
-    ft = WC.get_function_type(instance.mod, inst.func)
+    ft = WC.get_function_type(fr.inst.mod, fr.idx)
     results = invoke(fr.inst, fr.idx, collect(args))
     isempty(ft.results) && return nothing
     length(ft.results) == 1 && return only(results)
@@ -577,12 +577,7 @@ function interpret(instance, frame, expr)
             ft = WC.get_function_type(instance.mod, inst.func)
             arguments = reverse([pop!(frame.value_stack) for _ in ft.params])
             results = invoke(instance, inst.func, arguments)
-            if isempty(ft.results)
-            elseif length(ft.results) == 1
-                push!(frame.value_stack, results)
-            else
-                append!(frame.value_stack, results)
-            end
+            append!(frame.value_stack, results)
         elseif inst isa If
             cond = pop!(frame.value_stack)::Int32
 
@@ -653,6 +648,17 @@ function interpret(instance, frame, expr)
             end
         elseif inst isa br
             frame.jmp_target = current_stack - inst.label - 1
+            frame.fall_through = false
+            return
+        elseif inst isa br_table
+            idx = pop!(frame.value_stack)::Int32 + 1
+            dest = if idx < 0 || idx > length(inst.labels)
+                inst.default
+            else
+                inst.labels[idx]
+            end
+
+            frame.jmp_target = current_stack - dest - 1
             frame.fall_through = false
             return
         elseif inst isa nop

@@ -235,6 +235,7 @@ for (WT, T) in zip((i32, i64), (Int32, Int64))
         memarg::MemArg
     end
     @eval $store_s() = $store_s(MemArg())
+    @eval inst_func_type(_, ::$(store_s)) = FuncType([i32,$WT], [])
 
     for f in ("clz", "ctz", "popcnt", "eqz")
         inst = Symbol(WT, "_", f)

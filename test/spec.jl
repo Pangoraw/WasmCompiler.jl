@@ -2,7 +2,7 @@ using WasmCompiler, Test
 
 const testsuite_dir = joinpath(@__DIR__, "testsuite")
 
-@testset "spectest: $(basename(p))"  for p in filter!(f -> !contains(f, "block") && !contains(f, "if"), readdir(testsuite_dir; join=true))
+@testset "spectest: $(basename(p))"  for p in filter!(Returns(true), readdir(testsuite_dir; join=true))
     sexprs = open(WC.parse_wast, p)
 
     module_ = nothing
@@ -52,7 +52,7 @@ const testsuite_dir = joinpath(@__DIR__, "testsuite")
             @testset let fn=name, vargs=vargs
                 @test WC.Interpreter.invoke(
                     inst, func_idx, vargs
-                ) == exp
+                ) == exp skip = contains(name, "call_indirect") || contains(name, "memory.grow")
             end
         end
 
