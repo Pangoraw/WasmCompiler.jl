@@ -689,7 +689,7 @@ function invoke(instance, idx, args)
 
     if idx <= num_imports
         result = instance.imported_funcs[idx](args...)
-        ft = WC.get_function_type(instance.mod, inst.func)
+        ft = WC.get_function_type(instance.mod, idx)
         if isempty(ft.results)
             return Any[]
         elseif length(ft.results) == 1
