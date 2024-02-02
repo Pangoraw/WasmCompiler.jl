@@ -248,6 +248,7 @@ function inst_func_type(val, b::br_if)
     FuncType([bt.results..., i32], [bt.results...])
 end
 
+inst_func_type(_, ::v128_const) = FuncType([], [v128])
 inst_func_type(_, ::v128_store) = FuncType([i32,v128], [])
 inst_func_type(_, ::v128_load) = FuncType([i32], [v128])
 

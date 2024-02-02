@@ -488,7 +488,7 @@ _printwasm(io::IO, lg::local_get) = (_printinst(io, "local.get"), print(io, ' ',
 
 function _printwasm(io::IO, c::v128_const)
     _printinst(io, "v128.const")
-    print(io, " "); _printkw("i32x4");
+    print(io, " "); _printkw(io, "i32x4");
     for x in i32x4(c.val)
         print(io, " ", reinterpret(UInt32, x))
     end
@@ -502,7 +502,7 @@ function _printwasm(io::IO, cmp::v128cmp)
     _printinst(io, inst)
 end
 _printwasm(io::IO, b::v128bitmask) = _printinst(io, string(b.lane, "x", Lanes.count(b.lane), ".bitmask"))
-_printwasm(io::IO, b::v128bin) = _printinst(io, string(b.lane, "x", Lanes.count(b.lane), b.op))
+_printwasm(io::IO, b::v128bin) = _printinst(io, string(b.lane, "x", Lanes.count(b.lane), '.', b.op))
 _printwasm(io::IO, b::v128all_true) = _printinst(io, string(b.lane, "x", Lanes.count(b.lane), ".all_true"))
 _printwasm(io::IO, b::v128splat) = _printinst(io, string(b.lane, "x", Lanes.count(b.lane), ".splat"))
 _printwasm(io::IO, b::v128replace_lane) = (_printinst(io, string(b.lane, "x", Lanes.count(b.lane), ".replace_lane")); print(io, " ", b.id))

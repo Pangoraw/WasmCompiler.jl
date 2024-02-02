@@ -613,17 +613,17 @@ function interpret(instance, frame, expr)
             end
 
             push!(frame.value_stack, if inst.lane == Lanes.i8
-                WC.i8x16(res)
+                WC.i8x16(res...)
             elseif inst.lane == Lanes.i16
-                WC.i16x8(res)
+                WC.i16x8(res...)
             elseif inst.lane == Lanes.i32
-                WC.i32x4(res)
+                WC.i32x4(res...)
             elseif inst.lane == Lanes.i64
-                WC.i64x2(res)
+                WC.i64x2(res...)
             elseif inst.lane == Lanes.f32
-                WC.f32x4(res)
+                WC.f32x4(res...)
             elseif inst.lane == Lanes.f64
-                WC.f64x2(res)
+                WC.f64x2(res...)
             end)
         elseif inst isa If
             cond = pop!(frame.value_stack)::Int32

@@ -416,6 +416,23 @@ function make_inst!(inst, ex, ctx)
         val = popfirst!(args)
         make_inst!(inst, args, ctx)
         push!(inst, f64_const(val))
+    elseif head === :v128_const
+        typ = popfirst!(args)
+        val = if typ === :i32x4
+            if !(length(args) >= 4 && all(x->isa(x,Integer), first(args, 4)))
+                error("invalid v128.const")
+            end
+            i32x4(
+              popfirst!(args),
+              popfirst!(args),
+              popfirst!(args),
+              popfirst!(args),
+            )
+        else
+            error("invalid token $typ in v128.const")
+        end
+        make_inst!(inst, args, ctx)
+        push!(inst, v128_const(val))
     elseif head === :local_set
         loc = _resolve_local(ctx, popfirst!(args))
         make_inst!(inst, args, ctx)
@@ -445,6 +462,15 @@ function make_inst!(inst, ex, ctx)
         memarg = parse_memarg!(args)
         make_inst!(inst, args, ctx)
         push!(inst, getproperty(WC, head)(memarg))
+    elseif head in [:i8x16_add, :i16x8_add, :i32x4_add, :i64x2_add, :f32x4_add, :f64x2_add,
+                    :i8x16_sub, :i16x8_sub, :i32x4_sub, :i64x2_sub, :f32x4_sub, :f64x2_sub,
+                    :i8x16_mul, :i16x8_mul, :i32x4_mul, :i64x2_mul, :f32x4_mul, :f64x2_mul,
+                    :i8x16_div, :i16x8_div, :i32x4_div, :i64x2_div, :f32x4_div, :f64x2_div]
+        shead = string(head)
+        lane = getproperty(Lanes, Symbol(first(split(shead, "x"))))
+        op = getproperty(MathOperators, Symbol(last(split(shead, "_"))))
+        make_inst!(inst, args, ctx)
+        push!(inst, v128bin(lane, op))
     elseif head === :call_indirect
         typ = _resolve_type(ctx, popfirst!(args)[end])
         make_inst!(inst, args, ctx)
@@ -520,7 +546,7 @@ function make_inst!(inst, ex, ctx)
         make_inst!(newinst, args, ctx)
         pop!(ctx.labels)
         push!(inst, Block(fntype, newinst))
-    elseif isdefined(WC, head) && getproperty(WC, head) <: Inst
+    elseif isdefined(WC, head) && getproperty(WC, head) isa Type && getproperty(WC, head) <: Inst
         make_inst!(inst, args, ctx)
         push!(inst, getproperty(WC, head)())
     else
