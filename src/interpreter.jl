@@ -35,7 +35,7 @@ using ..WasmCompiler:
     i64_trunc_f64_s, i64_trunc_f64_u, f64_reinterpret_i64,
     i64_extend_i32_s, i64_extend_i32_u,
     call,
-    v128_const,
+    v128_const, v128bin,
     global_set, global_get,
     select, br, br_if, br_table, nop, unreachable, return_, drop,
     i32, i64, f32, f64, v128
