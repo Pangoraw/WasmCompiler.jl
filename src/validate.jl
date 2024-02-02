@@ -104,17 +104,17 @@ function validate_inst(val, inst)
     # println(" ", val.stack)
 
     if length(val.stack) < length(fntype.params)
-        throw(ValidationError("type mismatch: expected $(fntype.params) but got $(val.stack) on the stack for $inst"))
+        throw(ValidationError("$(val.func.name): type mismatch: expected $(fntype.params) but got $(val.stack) on the stack for $inst"))
     end
 
     stack_values = reverse(ValType[pop!(val.stack) for _ in fntype.params])
 
     if stack_values != fntype.params
-        throw(ValidationError("type mismatch: expected $(fntype.params) but got $stack_values on the stack for $inst"))
+        throw(ValidationError("$(val.func.name): type mismatch: expected $(fntype.params) but got $stack_values on the stack for $inst"))
     end
 
     if inst isa global_set && !global_type(val.mod, inst.n).mut
-        throw(ValidationError("setting value to immutable global $(inst.n)"))
+        throw(ValidationError("$(val.func.name): setting value to immutable global $(inst.n)"))
     end
 
     if inst isa If
@@ -136,7 +136,7 @@ function validate_inst(val, inst)
             empty!(val.stack)
         else
             if last(val.stack, length(inst.fntype.results)) != inst.fntype.results
-                throw(ValidationError("type mismatch: invalid if true branch"))
+                throw(ValidationError("$(val.func.name): type mismatch: invalid if true branch"))
             end
             for _ in 1:length(inst.fntype.results)
                 pop!(val.stack)

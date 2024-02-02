@@ -656,6 +656,8 @@ function interpret(instance, frame, expr)
                     return
                 elseif current_stack == frame.jmp_target && !frame.fall_through
                     frame.fall_through = false
+                    frame.jmp_target = 0
+                    frame.jmp_counter = current_stack
                     continue
                 else
                     break
