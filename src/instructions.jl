@@ -361,6 +361,10 @@ struct i64_trunc_f64_u <: UnaryInst end
 struct i32_wrap_i64 <: UnaryInst end
 struct f32_demote_f64 <: UnaryInst end
 
+struct v128_const <: Inst
+    val::NTuple{16,UInt8}
+end
+
 struct v128_store <: Inst
     memarg::MemArg
 end

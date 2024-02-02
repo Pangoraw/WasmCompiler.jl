@@ -279,6 +279,11 @@ end
 
 wwrite(io::IO, ::memory_copy) = wwrite(io, 0xfc, UInt32(10), 0x00, 0x00)
 
+function wwrite(io::IO, c::v128_const)
+    n = wwrite(io, 0xfd, UInt32(12))
+    foreach(b -> write(io, b), c.val)
+    n + 16
+end
 wwrite(io::IO, s::v128_load) = wwrite(io, 0xfd, UInt32(0), s.memarg)
 wwrite(io::IO, s::v128_store) = wwrite(io, 0xfd, UInt32(11), s.memarg)
 

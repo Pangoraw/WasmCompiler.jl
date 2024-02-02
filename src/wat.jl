@@ -486,6 +486,14 @@ _printwasm(io::IO, ls::local_set) = (_printinst(io, "local.set"), print(io, ' ',
 _printwasm(io::IO, lt::local_tee) = (_printinst(io, "local.tee"), print(io, ' ', lt.n - 1))
 _printwasm(io::IO, lg::local_get) = (_printinst(io, "local.get"), print(io, ' ', lg.n - 1))
 
+function _printwasm(io::IO, c::v128_const)
+    _printinst(io, "v128.const")
+    print(io, " "); _printkw("i32x4");
+    for x in i32x4(c.val)
+        print(io, " ", reinterpret(UInt32, x))
+    end
+end
+
 function _printwasm(io::IO, cmp::v128cmp)
     inst = string(cmp.lane, "x", Lanes.count(cmp.lane), ".", cmp.cmp)
     if Operators.needs_sign(cmp.cmp)

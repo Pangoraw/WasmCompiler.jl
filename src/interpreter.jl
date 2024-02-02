@@ -35,6 +35,7 @@ using ..WasmCompiler:
     i64_trunc_f64_s, i64_trunc_f64_u, f64_reinterpret_i64,
     i64_extend_i32_s, i64_extend_i32_u,
     call,
+    v128_const,
     global_set, global_get,
     select, br, br_if, br_table, nop, unreachable, return_, drop,
     i32, i64, f32, f64, v128
@@ -578,6 +579,8 @@ function interpret(instance, frame, expr)
             arguments = reverse([pop!(frame.value_stack) for _ in ft.params])
             results = invoke(instance, inst.func, arguments)
             append!(frame.value_stack, results)
+        elseif inst isa v128_const
+            push!(frame.value_stack, inst.val)
         elseif inst isa If
             cond = pop!(frame.value_stack)::Int32
 

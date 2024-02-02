@@ -345,6 +345,9 @@ function read_inst(io::IO)
             return v128_load(MemArg(LEB128.decode(io, UInt32), LEB128.decode(io, UInt32)))
         elseif tag == 0x0b
             return v128_store(MemArg(LEB128.decode(io, UInt32), LEB128.decode(io,UInt32)))
+        elseif tag == 0x0c
+            bytes = Tuple(read(io, 16))
+            return v128_const(bytes)
         elseif tag == 0x11
             return i32x4_splat()
         elseif tag == 0x1c
