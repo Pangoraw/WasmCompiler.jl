@@ -1,7 +1,7 @@
 module Interpreter
 
 using ..WasmCompiler
-using ..WasmCompiler: GlobalType, Module, MemoryType, ValType, FuncType
+using ..WasmCompiler: GlobalType, Module, MemoryType, ValType, FuncType, Lanes, MathOperators
 using ..WasmCompiler:
     i32_const, f32_const, f64_const, f32_lt, local_get, local_set, local_tee,
     i32_eq, i32_ne, i32_lt_s, i32_lt_u, i32_le_s, i32_le_u, i32_gt_s, i32_gt_u, i32_ge_s, i32_ge_u,
@@ -581,6 +581,50 @@ function interpret(instance, frame, expr)
             append!(frame.value_stack, results)
         elseif inst isa v128_const
             push!(frame.value_stack, inst.val)
+        elseif inst isa v128bin
+            b = pop!(frame.value_stack)::NTuple{16,UInt8}
+            a = pop!(frame.value_stack)::NTuple{16,UInt8}
+            a, b = if inst.lane == Lanes.i8
+                WC.i8x16(a), WC.i8x16(b)
+            elseif inst.lane == Lanes.i16
+                WC.i16x8(a), WC.i16x8(b)
+            elseif inst.lane == Lanes.i32
+                WC.i32x4(a), WC.i32x4(b)
+            elseif inst.lane == Lanes.i64
+                WC.i64x2(a), WC.i64x2(b)
+            elseif inst.lane == Lanes.f32
+                WC.f32x4(a), WC.f32x4(b)
+            elseif inst.lane == Lanes.f64
+                WC.f64x2(a), WC.f64x2(b)
+            end
+
+            res = if inst.op == MathOperators.add
+                a .+ b
+            elseif inst.op == MathOperators.sub
+                a .- b
+            elseif inst.op == MathOperators.mul
+                a .* b
+            elseif inst.op == MathOperators.div
+                if inst.lane <= Lanes.i64
+                    div.(a, b)
+                else
+                    a ./ b
+                end
+            end
+
+            push!(frame.value_stack, if inst.lane == Lanes.i8
+                WC.i8x16(res)
+            elseif inst.lane == Lanes.i16
+                WC.i16x8(res)
+            elseif inst.lane == Lanes.i32
+                WC.i32x4(res)
+            elseif inst.lane == Lanes.i64
+                WC.i64x2(res)
+            elseif inst.lane == Lanes.f32
+                WC.f32x4(res)
+            elseif inst.lane == Lanes.f64
+                WC.f64x2(res)
+            end)
         elseif inst isa If
             cond = pop!(frame.value_stack)::Int32
 
