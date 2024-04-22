@@ -1,4 +1,4 @@
-using WasmCompiler: Module, i32, local_get, f32_add, i32_add, drop, unreachable
+using WasmCompiler: i32, local_get, f32_add, i32_add, drop, unreachable
 
 @testset "validation" begin
     f = WC.Func("f",

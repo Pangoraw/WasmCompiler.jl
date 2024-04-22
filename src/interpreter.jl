@@ -80,8 +80,7 @@ function (fr::FuncRef)(args...)
     ft = WC.get_function_type(fr.inst.mod, fr.idx)
     results = invoke(fr.inst, fr.idx, collect(args))
     isempty(ft.results) && return nothing
-    length(ft.results) == 1 && return only(results)
-    return results
+    return last(results, length(ft.results))
 end
 
 function exports(instance)
@@ -142,23 +141,31 @@ function check_inbounds(mem, ptr)
     end
 end
 
-
-mutable struct CallFrame
+struct CallFrame
     fntype::Union{Nothing,FuncType}
     locals::Vector{Any}
     value_stack::Vector{Any}
-
-    jmp_counter::Int   # increment at each block
-    jmp_target::Int    # reach jmp_counter when returning from interpret
-    fall_through::Bool # for loops
 end
-CallFrame() = CallFrame(nothing, Any[], Any[], 0, 0, false)
+CallFrame() = CallFrame(nothing, Any[], Any[])
 
 function interpret(instance, frame, expr)
-    frame.jmp_counter += 1
-    current_stack = frame.jmp_counter
+    expr_stack = Vector{WasmCompiler.Inst}[]
+    pc_stack = Int[]
 
-    for inst in expr
+    pc = firstindex(expr)
+    function pop_label_stack!(label)
+        for _ in 0:label
+            pc = pop!(pc_stack)
+            expr = pop!(expr_stack)
+        end
+        # br to loop is to beginning of loop
+        expr[pc] isa Loop && (pc -= 1)
+        nothing
+    end
+
+    while pc <= lastindex(expr)
+        inst = expr[pc]
+
         if inst isa i32_const
             push!(frame.value_stack, inst.val)
         elseif inst isa i64_const
@@ -628,77 +635,31 @@ function interpret(instance, frame, expr)
         elseif inst isa If
             cond = pop!(frame.value_stack)::Int32
 
-            if cond != zero(Int32)
-                interpret(instance, frame, inst.trueinst)
+            push!(pc_stack, pc)
+            push!(expr_stack, expr)
 
-                if current_stack > frame.jmp_target
-                    frame.jmp_counter = current_stack - 1
-                    return
-                elseif current_stack == frame.jmp_target
-                    # ok
-                end
-            else
-                interpret(instance, frame, inst.falseinst)
-
-                if current_stack > frame.jmp_target
-                    frame.jmp_counter = current_stack - 1
-                    return
-                elseif current_stack == frame.jmp_target
-                    # ok
-                end
-            end
+            expr = !iszero(cond) ? inst.trueinst : inst.falseinst
+            pc = 0
         elseif inst isa Loop
-            while true
-                interpret(instance, frame, inst.inst)
-
-                if current_stack > frame.jmp_target
-                    frame.jmp_counter = current_stack - 1
-                    return
-                elseif current_stack == frame.jmp_target && !frame.fall_through
-                    frame.fall_through = false
-                    frame.jmp_target = 0
-                    frame.jmp_counter = current_stack
-                    continue
-                else
-                    break
-                end
-            end
-
-            if current_stack > frame.jmp_target
-                frame.jmp_counter = current_stack - 1
-                return
-            elseif current_stack == frame.jmp_target
-                # ok
-            end
+            push!(pc_stack, pc)
+            push!(expr_stack, expr)
+            pc = 0
+            expr = inst.inst
         elseif inst isa Block
-
-            interpret(instance, frame, inst.inst)
-
-            if current_stack > frame.jmp_target
-                frame.jmp_counter = current_stack - 1
-                return
-            elseif current_stack == frame.jmp_target
-                # ok
-            end
-
+            push!(pc_stack, pc)
+            push!(expr_stack, expr)
+            pc = 0
+            expr = inst.inst
         elseif inst isa return_
-            values = reverse([pop!(frame.value_stack) for _ in frame.fntype.results])
+            values = last(frame.value_stack, length(frame.fntype.results))
             empty!(frame.value_stack)
             append!(frame.value_stack, values)
-            frame.jmp_target = -1
-            frame.fall_through = false
             return
         elseif inst isa br_if
             cond = pop!(frame.value_stack)::Int32
-            if cond !== Int32(0)
-                frame.jmp_target = current_stack - inst.label - 1
-                frame.fall_through = false
-                return
-            end
+            !iszero(cond) && pop_label_stack!(inst.label)
         elseif inst isa br
-            frame.jmp_target = current_stack - inst.label - 1
-            frame.fall_through = false
-            return
+            pop_label_stack!(inst.label)
         elseif inst isa br_table
             idx = pop!(frame.value_stack)::Int32 + 1
             dest = if idx < 0 || idx > length(inst.labels)
@@ -706,10 +667,7 @@ function interpret(instance, frame, expr)
             else
                 inst.labels[idx]
             end
-
-            frame.jmp_target = current_stack - dest - 1
-            frame.fall_through = false
-            return
+            pop_label_stack!(dest)
         elseif inst isa nop
             # pass
         elseif inst isa unreachable
@@ -717,14 +675,12 @@ function interpret(instance, frame, expr)
         else
             error("unimplemented inst $inst")
         end
+        while pc == lastindex(expr) && !isempty(pc_stack)
+            expr = pop!(expr_stack)
+            pc = pop!(pc_stack)
+        end
+        pc += 1
     end
-
-    # Simulate (br 0) but with fall through = true
-    frame.jmp_target = current_stack - 1
-    frame.jmp_counter = current_stack - 1
-    frame.fall_through = true
-
-    return
 end
 
 jltype(valtype) = if valtype == i32
@@ -760,7 +716,7 @@ function invoke(instance, idx, args)
     frame = CallFrame(
         func.fntype,
         Any[zero(jltype(v)) for v in func.locals],
-        Any[], 0, 0, false,
+        Any[],
     )
     for (i, (T,arg)) in enumerate(zip(func.fntype.params, args))
         @assert arg isa jltype(T) "invalid argument #$i of type $(typeof(arg)), wanted $(T)"

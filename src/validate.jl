@@ -181,7 +181,9 @@ function validate_inst(val, inst)
 
         push!(
             val.block_types,
-            inst.fntype,
+            inst isa Block ?
+                FuncType(inst.fntype.params, inst.fntype.results) :
+                FuncType(inst.fntype.results, inst.fntype.params),
         )
         append!(val.stack, stack_values)
 
