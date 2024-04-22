@@ -353,10 +353,20 @@ struct i32_trunc_f32_u <: UnaryInst end
 struct i32_trunc_f64_s <: UnaryInst end
 struct i32_trunc_f64_u <: UnaryInst end
 
+struct i32_trunc_sat_f32_s <: UnaryInst end
+struct i32_trunc_sat_f32_u <: UnaryInst end
+struct i32_trunc_sat_f64_s <: UnaryInst end
+struct i32_trunc_sat_f64_u <: UnaryInst end
+
 struct i64_trunc_f32_s <: UnaryInst end
 struct i64_trunc_f32_u <: UnaryInst end
 struct i64_trunc_f64_s <: UnaryInst end
 struct i64_trunc_f64_u <: UnaryInst end
+
+struct i64_trunc_sat_f32_s <: UnaryInst end
+struct i64_trunc_sat_f32_u <: UnaryInst end
+struct i64_trunc_sat_f64_s <: UnaryInst end
+struct i64_trunc_sat_f64_u <: UnaryInst end
 
 struct i32_wrap_i64 <: UnaryInst end
 struct f32_demote_f64 <: UnaryInst end
@@ -441,6 +451,50 @@ struct v128bitmask <: UnaryInst
     lane::Lane
 end
 
+struct v128_load8x8_s <: Inst
+    memarg::MemArg
+end
+v128_load8x8_s() = v128_load8x8_s(MemArg())
+struct v128_load8x8_u <: Inst
+    memarg::MemArg
+end
+v128_load8x8_u() = v128_load8x8_u(MemArg())
+struct v128_load16x4_s <: Inst
+    memarg::MemArg
+end
+v128_load16x4_s() = v128_load16x4_s(MemArg())
+struct v128_load16x4_u <: Inst
+    memarg::MemArg
+end
+v128_load16x4_u() = v128_load16x4_u(MemArg())
+struct v128_load32x2_s <: Inst
+    memarg::MemArg
+end
+v128_load32x2_s() = v128_load32x2_s(MemArg())
+struct v128_load32x2_u <: Inst
+    memarg::MemArg
+end
+v128_load32x2_u() = v128_load32x2_u(MemArg())
+
+struct v128_load8_splat <: Inst
+    memarg::MemArg
+end
+v128_load8_splat() = v128_load8_splat(MemArg())
+struct v128_load16_splat <: Inst
+    memarg::MemArg
+end
+v128_load16_splat() = v128_load16_splat(MemArg())
+struct v128_load32_splat <: Inst
+    memarg::MemArg
+end
+v128_load32_splat() = v128_load32_splat(MemArg())
+struct v128_load64_splat <: Inst
+    memarg::MemArg
+end
+v128_load64_splat() = v128_load64_splat(MemArg())
+
+# -- tables
+
 struct elem_drop <: Inst
     elem::Index
 end
@@ -514,6 +568,9 @@ end
 struct struct_new <: Inst
     typeidx::Index
 end
+struct struct_new_default <: Inst
+    typeidx::Index
+end
 struct struct_get <: Inst
     typeidx::Index
     fieldidx::Index
@@ -526,12 +583,30 @@ end
 struct array_new <: Inst
     typeidx::Index
 end
+struct array_new_fixed <: Inst
+    typeidx::Index
+    length::UInt32
+end
 struct array_len <: Inst end
 struct array_set <: Inst
     typeidx::Index
 end
 struct array_get <: Inst
     typeidx::Index
+end
+struct array_get_s <: Inst
+    typeidx::Index
+end
+struct array_get_u <: Inst
+    typeidx::Index
+end
+
+struct array_fill <: Inst
+    typeidx::Index
+end
+struct array_copy <: Inst
+    src::Index
+    tgt::Index
 end
 
 struct ref_eq <: BinaryInst end
@@ -542,9 +617,11 @@ struct ref_is_null <: Inst end
 struct ref_as_non_null <: Inst end
 struct ref_cast <: Inst
     ref::WasmRef
+    null::Bool
 end
 struct ref_test <: Inst
     ref::WasmRef
+    null::Bool
 end
 
 struct string_const <: Inst

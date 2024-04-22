@@ -729,4 +729,6 @@ function invoke(instance, idx, args)
     results
 end
 
+export exports, instantiate
+
 end # module Interpreter

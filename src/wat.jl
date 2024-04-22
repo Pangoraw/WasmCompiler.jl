@@ -21,7 +21,7 @@ function _printwasm(io::IO, mod::Module)
 
     for type in mod.types
         println(io)
-        if type isa StructType
+        if type isa StructType || type isa ArrayType
             ctx = IOContext(io, :indent => indent, :mod => mod)
             _printwasm(ctx, type)
         elseif type isa RecursiveZone
@@ -284,6 +284,8 @@ function _printwasm(io::IO, arraytype::ArrayType)
     println(io, "))")
 end
 
+_printwasm(io::IO, ::ExternRef) = _printkw(io, "externref")
+_printwasm(io::IO, ::EqRef) = _printkw(io, "eqref")
 function _printwasm(io::IO, structtype::StructType)
     indent = get(io, :indent, 0)
     print(io, INDENT_S^indent, "(")

@@ -144,11 +144,12 @@ function read_block_type(io::IO)
     if next == 0x40
         read(io, UInt8)
         return FuncType([], [])
-    elseif next in 0x7b:0x7f
+    elseif next in 0x63:0x7f
         return FuncType([], [wread(io, ValType)])
     else
         s = LEB128.decode(io, Int32)
-        error("unsupported block type $(next) $s")
+        mod = get(io, :mod, nothing)::Module
+        return copy(resolve_type(mod.types, s+1))
     end
 end
 
@@ -291,6 +292,8 @@ function read_inst(io::IO)
         tag = LEB128.decode(io, UInt32)
         if tag == 0
             return struct_new(LEB128.decode(io, UInt32) + one(Index))
+        elseif tag == 1
+            return struct_new_default(LEB128.decode(io, UInt32) + one(Index))
         elseif tag == 2
             return struct_get(LEB128.decode(io, UInt32) + one(Index),
                               LEB128.decode(io, UInt32) + one(Index))
@@ -299,18 +302,26 @@ function read_inst(io::IO)
                               LEB128.decode(io, UInt32) + one(Index))
         elseif tag == 6
             return array_new(LEB128.decode(io, UInt32) + one(Index))
+        elseif tag == 8
+            return array_new_fixed(LEB128.decode(io, UInt32) + one(Index), LEB128.decode(io, UInt32))
         elseif tag == 11
             return array_get(LEB128.decode(io, UInt32) + one(Index))
+        elseif tag == 12
+            return array_get_s(LEB128.decode(io, UInt32) + one(Index))
+        elseif tag == 13
+            return array_get_u(LEB128.decode(io, UInt32) + one(Index))
         elseif tag == 14
             return array_set(LEB128.decode(io, UInt32) + one(Index))
         elseif tag == 15
             return array_len()
-        elseif tag == 20
+        elseif tag == 17
+            return array_copy(LEB128.decode(io, UInt32) + one(Index), LEB128.decode(io, UInt32) + one(Index))
+        elseif tag == 20 || tag == 21
             ty = wread(io, ValType)
-            return ref_test(ty)
-        elseif tag == 22
+            return ref_test(ty, tag == 21)
+        elseif tag == 22 || tag == 23
             ty = wread(io, ValType)
-            return ref_cast(ty)
+            return ref_cast(ty, tag == 23)
         elseif tag == 0x82
             return string_const(LEB128.decode(io, UInt32) + one(Index))
         else
@@ -318,7 +329,16 @@ function read_inst(io::IO)
         end
     elseif tag == 0xfc # table/memory
         tag = LEB128.decode(io, UInt32)
-        if tag == 10
+        if tag <= 7
+            return [i32_trunc_sat_f32_s,
+                    i32_trunc_sat_f32_u,
+                    i32_trunc_sat_f64_s,
+                    i32_trunc_sat_f64_u,
+                    i64_trunc_sat_f32_s,
+                    i64_trunc_sat_f32_u,
+                    i64_trunc_sat_f64_s,
+                    i64_trunc_sat_f64_u][tag+1]()
+        elseif tag == 10
             @assert read(io, 2) == UInt8[0x00, 0x00]
             return memory_copy()
         elseif tag == 11
@@ -341,8 +361,18 @@ function read_inst(io::IO)
         end
     elseif tag == 0xfd # v128
         tag = LEB128.decode(io, UInt32)
-        if tag == 0x00
-            return v128_load(MemArg(LEB128.decode(io, UInt32), LEB128.decode(io, UInt32)))
+        if tag <= 10
+            return [v128_load,
+                    v128_load8x8_s,
+                    v128_load8x8_u,
+                    v128_load16x4_s,
+                    v128_load16x4_u,
+                    v128_load32x2_s,
+                    v128_load32x2_u,
+                    v128_load8_splat,
+                    v128_load16_splat,
+                    v128_load32_splat,
+                    v128_load64_splat][tag+1](MemArg(LEB128.decode(io, UInt32), LEB128.decode(io, UInt32)))
         elseif tag == 0x0b
             return v128_store(MemArg(LEB128.decode(io, UInt32), LEB128.decode(io,UInt32)))
         elseif tag == 0x0c
@@ -371,15 +401,19 @@ function read_inst(io::IO)
             error("invalid instruction code v128 0xfd $tag")
         end
     else
+      display(Wat(get(io,:mod,nothing)))
         tag = "0x" * string(tag; base=16, pad=2)
-        offset = "0x" * string(position(io); base=16)
+        offset = "0x" * string(position(io.io); base=16)
         error("invalid instruction code $tag at $offset")
     end
 end
 
 function read_inst_list!(io::IO, inst)
     while peek(io) != 0x0B
-        push!(inst, read_inst(io))
+        p = peek(io)
+        newinst = read_inst(io)
+        @debug "inst" inst=typeof(newinst) newinst=Wat(newinst) pos=UInt(position(io.io)) p p2=peek(io)
+        push!(inst, newinst)
     end
     @assert read(io, UInt8) == 0x0B
     inst
@@ -620,7 +654,7 @@ function wread(io::IO)
                 mut = mut == 0x01
                 gt = GlobalType(mut, valtype)
                 init = Inst[]
-                read_inst_list!(io, init)
+                read_inst_list!(IOContext(io, :mod => wmod), init)
                 g = Global(nothing, gt, init)
                 push!(wmod.globals, g)
             end
@@ -664,7 +698,8 @@ function wread(io::IO)
                         push!(locals, val)
                     end
                 end
-                read_inst_list!(io, inst)
+                @debug "reading code" i locals pos=UInt(position(io))
+                read_inst_list!(IOContext(io, :mod => wmod), inst)
                 @assert position(io) == code_pos + n_code_bytes "malformed code section (function $i)"
                 wmod.funcs[i] = Func(nothing, fntype, locals, inst)
             end
@@ -679,7 +714,7 @@ function wread(io::IO)
                 mem = 0
                 mode == 2 && (mem = LEB128.decode(io, UInt32))
                 if mode == 0 || mode == 2
-                    read_inst_list!(io, offset) 
+                    read_inst_list!(IOContext(io, :mod => wmod), offset) 
                 end
                 mode = mode == 1 ?
                   DataModePassive() :
