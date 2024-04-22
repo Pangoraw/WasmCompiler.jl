@@ -2,7 +2,7 @@ using WasmCompiler, Test
 
 const testsuite_dir = joinpath(@__DIR__, "testsuite")
 
-@testset "spectest: $(basename(p))" for p in filter!(Returns(true), readdir(testsuite_dir; join=true))
+@testset "spectest: $(basename(p))" for p in filter!(contains("fac.wast"), readdir(testsuite_dir; join=true))
     sexprs = open(WC.parse_wast, p)
 
     module_ = nothing

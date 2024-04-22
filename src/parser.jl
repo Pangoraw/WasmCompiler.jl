@@ -131,14 +131,16 @@ function read_number(io::IO)
     neg = peek(io, Char) == '-'
     neg && read(io, Char)
 
+    s = ""
+
     base = 10
     if peek(io, Char) == '0'
-        read(io, Char)
+        s *= read(io, Char)
         if peek(io, Char) == 'x'
-            read(io, Char)
+            s *= read(io, Char)
             base = 16
         elseif peek(io, Char) == 'b'
-            read(io, Char)
+            s *= read(io, Char)
             base = 2
         end
     end
@@ -148,6 +150,7 @@ function read_number(io::IO)
     n = 0
     c = peek(io, Char)
     while !eof(io) && (numberstart(c) || (base == 16 && (c ∈ ('a':'f') ∪ ('A':'F'))) || c == '.' || c == '_')
+        s *= c
         if c == '.'
             decimal > 0 && error("invalid token '.' at $(position(io))")
             decimal = 1
@@ -170,6 +173,19 @@ function read_number(io::IO)
         eof(io) && break
         c = peek(io, Char)
     end
+
+    if peek(io, Char) == 'p'
+        s *= read(io, Char)
+        peek(io, Char) in ('+', '-') || error("invalid number $s")
+        s *= read(io, Char)
+        c = peek(io, Char)
+        while c in '0':'9'
+            s *= read(io, Char)
+            c = peek(io, Char)
+        end
+        return parse(Float64, s)
+    end
+
     neg ? -n : n
 end
 
@@ -258,7 +274,7 @@ function parse_functype!(args, ctx)
 end
 
 _resolve_local(ctx, idx) = idx isa Int ? idx + 1 : ctx.named_locals[idx]
-_resolve_label(ctx, idx) = idx isa Int ? idx : error()
+_resolve_label(ctx, idx) = idx isa Int ? idx : length(ctx.labels)-findlast(==(idx), ctx.labels)
 _resolve_func(ctx, idx) = get(() -> idx+1, ctx.named_functions, idx)
 _resolve_type(ctx, idx) = get(() -> idx+1, ctx.named_types, idx)
 _resolve_global(ctx, idx) = get(() -> idx + 1, ctx.named_globals, idx)
@@ -301,7 +317,7 @@ function make_inst_linear!(inst, args, ctx)
             func = _resolve_func(ctx, popfirst!(args))
             push!(inst, call(func))
         elseif head === :br_if || head === :br
-            dest = popfirst!(args)
+            dest = _resolve_label(ctx, popfirst!(args))
             push!(inst, getproperty(WC, head)(_resolve_label(ctx, dest)))
         elseif head === :br_table
             labels = Int[]
@@ -480,7 +496,7 @@ function make_inst!(inst, ex, ctx)
         make_inst!(inst, args, ctx)
         push!(inst, call(func))
     elseif head === :br_if || head === :br
-        dest = popfirst!(args)
+        dest = _resolve_label(ctx, popfirst!(args))
         make_inst!(inst, args, ctx)
         push!(inst, getproperty(WC, head)(dest))
     elseif head === :br_table
@@ -502,6 +518,8 @@ function make_inst!(inst, ex, ctx)
     elseif head === :if
         if length(args) >= 1 && first(args) isa Symbol && startswith(string(first(args)), '$')
             push!(ctx.labels, popfirst!(args))
+        else
+            push!(ctx.labels, nothing)
         end
 
         fntype = parse_functype!(args, ctx)
@@ -524,24 +542,26 @@ function make_inst!(inst, ex, ctx)
             make_inst!(falseinst, popfirst!(args)[begin+1:end], ctx)
         end
 
+        pop!(ctx.labels)
         push!(inst, If(fntype, trueinst, falseinst))
     elseif head === :loop
-        fntype = parse_functype!(args, ctx)
         if length(args) >= 1 && first(args) isa Symbol && startswith(string(first(args)), '$')
             push!(ctx.labels, popfirst!(args))
         else
             push!(ctx.labels, nothing)
         end
+        fntype = parse_functype!(args, ctx)
         newinst = Inst[]
         make_inst!(newinst, args, ctx)
+        pop!(ctx.labels)
         push!(inst, Loop(fntype, newinst))
     elseif head === :block
-        fntype = parse_functype!(args, ctx)
         if length(args) >= 1 && first(args) isa Symbol && startswith(string(first(args)), '$')
             push!(ctx.labels, popfirst!(args))
         else
             push!(ctx.labels, nothing)
         end
+        fntype = parse_functype!(args, ctx)
         newinst = Inst[]
         make_inst!(newinst, args, ctx)
         pop!(ctx.labels)

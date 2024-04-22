@@ -176,6 +176,7 @@ function get_function_type(wmod, funcidx)
     end
 
     funcidx -= n_imported
+    funcidx > length(wmod.funcs) && return nothing
     wmod.funcs[funcidx].fntype
 end
 

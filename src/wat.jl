@@ -251,9 +251,11 @@ function print_funcidx(io::IO, funcidx)
     name = if funcidx <= num_func_imports
         func_imports = filter(imp -> imp isa FuncImport, mod.imports)
         func_imports[funcidx].id
-    else
+    elseif funcidx - num_func_imports <= length(mod.funcs)
         func = mod.funcs[funcidx - num_func_imports]
         func.name
+    else
+        nothing
     end
     if isnothing(name)
         print(io, funcidx - 1)

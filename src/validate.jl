@@ -336,7 +336,11 @@ inst_func_type(_, ::f64_convert_i64_u) = FuncType([i64], [f64])
 inst_func_type(_, ::f64_convert_i32_s) = FuncType([i32], [f64])
 inst_func_type(_, ::f64_convert_i32_u) = FuncType([i32], [f64])
 
-inst_func_type(val, c::call) = copy(get_function_type(val.mod, c.func))
+function inst_func_type(val, c::call)
+    fntype = get_function_type(val.mod, c.func)
+    isnothing(fntype) && throw(ValidationError("$(val.func.name): unknown function $(c.func - 1)"))
+    copy(fntype)
+end
 function inst_func_type(val, c::call_indirect)
     t = resolve_type(val.mod.types, c.typeidx)
     FuncType([i32, t.params...], copy(t.results))
