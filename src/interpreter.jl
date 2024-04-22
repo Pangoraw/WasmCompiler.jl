@@ -149,18 +149,35 @@ end
 CallFrame() = CallFrame(nothing, Any[], Any[])
 
 function interpret(instance, frame, expr)
-    expr_stack = Vector{WasmCompiler.Inst}[]
-    pc_stack = Int[]
+    expr_stack = Vector{WasmCompiler.Inst}[expr]
+    stack_ptr_stack = Int[0]
+    pc_stack = Int[lastindex(expr)+1]
 
     pc = firstindex(expr)
     function pop_label_stack!(label)
+        local stack_ptr
         for _ in 0:label
             pc = pop!(pc_stack)
             expr = pop!(expr_stack)
+            stack_ptr = pop!(stack_ptr_stack)
+        end
+        pc > lastindex(expr) && return
+        inst = expr[pc]
+        if inst isa WC.ContainerInst
+            num_to_keep = inst isa Loop ? length(inst.fntype.params) : length(inst.fntype.results)
+            splice!(frame.value_stack,
+                    stack_ptr+1:lastindex(frame.value_stack)-num_to_keep)
         end
         # br to loop is to beginning of loop
         expr[pc] isa Loop && (pc -= 1)
         nothing
+    end
+    function push_label_stack!(inst)
+        push!(expr_stack, expr)
+        push!(pc_stack, pc)
+        push!(stack_ptr_stack, lastindex(frame.value_stack))
+        pc = 0
+        expr = inst
     end
 
     while pc <= lastindex(expr)
@@ -635,21 +652,24 @@ function interpret(instance, frame, expr)
         elseif inst isa If
             cond = pop!(frame.value_stack)::Int32
 
-            push!(pc_stack, pc)
-            push!(expr_stack, expr)
+            push_label_stack!(!iszero(cond) ? inst.trueinst : inst.falseinst)
+            #push!(pc_stack, pc)
+            #push!(expr_stack, expr)
 
-            expr = !iszero(cond) ? inst.trueinst : inst.falseinst
-            pc = 0
+            #expr = !iszero(cond) ? inst.trueinst : inst.falseinst
+            # pc = 0
         elseif inst isa Loop
-            push!(pc_stack, pc)
-            push!(expr_stack, expr)
-            pc = 0
-            expr = inst.inst
+            push_label_stack!(inst.inst)
+            # push!(pc_stack, pc)
+            # push!(expr_stack, expr)
+            # pc = 0
+            # expr = inst.inst
         elseif inst isa Block
-            push!(pc_stack, pc)
-            push!(expr_stack, expr)
-            pc = 0
-            expr = inst.inst
+            push_label_stack!(inst.inst)
+            # push!(pc_stack, pc)
+            # push!(expr_stack, expr)
+            # pc = 0
+            # expr = inst.inst
         elseif inst isa return_
             values = last(frame.value_stack, length(frame.fntype.results))
             empty!(frame.value_stack)
@@ -675,10 +695,14 @@ function interpret(instance, frame, expr)
         else
             error("unimplemented inst $inst")
         end
+
+        # fallthrough
         while pc == lastindex(expr) && !isempty(pc_stack)
             expr = pop!(expr_stack)
             pc = pop!(pc_stack)
+            pop!(stack_ptr_stack)
         end
+
         pc += 1
     end
 end

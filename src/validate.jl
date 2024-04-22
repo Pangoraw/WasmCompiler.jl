@@ -21,7 +21,7 @@ function validate(mod)
 end
 
 function validate_fn(mod::Module, func::Func)
-    val = FnValidator(mod, func, func.fntype, false, ValType[], FuncType[])
+    val = FnValidator(mod, func, func.fntype, false, ValType[], FuncType[func.fntype])
 
     for inst in func.inst
         validate_inst(val, inst)
@@ -38,7 +38,7 @@ function validate_inst(val, inst)
 
     if inst isa unreachable
         if !isempty(val.stack)
-            throw(ValidationError("unreachable with values on the stack"))
+            throw(ValidationError("$(val.func.name): unreachable with values on the stack"))
         end
 
         val.type_unreachable = true
@@ -48,7 +48,7 @@ function validate_inst(val, inst)
 
     if inst isa drop
         if isempty(val.stack)
-            throw(ValidationError("type mismatch: not enough values to drop"))
+            throw(ValidationError("$(val.func.name): type mismatch: not enough values to drop"))
         end
 
         pop!(val.stack)
@@ -58,22 +58,34 @@ function validate_inst(val, inst)
 
     if inst isa select
         if length(val.stack) < 3
-            throw(ValidationError("type mismatch: not enough values for select"))
+            throw(ValidationError("$(val.func.name): type mismatch: not enough values for select"))
         end
 
         cond = pop!(val.stack)
         if cond !== i32
-            throw(ValidationError("condition for select is of type $cond"))
+            throw(ValidationError("$(val.func.name): condition for select is of type $cond"))
         end
 
         t1, t2 = pop!(val.stack), pop!(val.stack)
         if t1 != t2
-            throw(ValidationError("invalid select with two types $t1 and $t2"))
+            throw(ValidationError("$(val.func.name): invalid select with two types $t1 and $t2"))
         end
 
         push!(val.stack, t1)
 
         return
+    end
+
+    validate_label(label) = 
+        label >= length(val.block_types) &&
+        throw(ValidationError("$(val.func.name): unknown label $label"))
+    if inst isa br || inst isa br_if
+        validate_label(inst.label)
+    end
+
+    if inst isa br_table
+        foreach(validate_label, inst.labels)
+        validate_label(inst.default)
     end
 
     # Validate that module has a memory
@@ -86,17 +98,18 @@ function validate_inst(val, inst)
                       memory_copy, memory_grow}
         if isempty(val.mod.mems) && !any(imp -> imp isa MemImport, val.mod.imports)
             inst_ = sprint(WC._printwasm, inst)
-            throw(ValidationError("$inst_ requires a memory"))
+            throw(ValidationError("$(val.func.name): $inst_ requires a memory"))
         end
 
         if !(inst isa memory_copy || inst isa memory_grow)
             if inst.memarg.offset < 0
-                throw(ValidationError("invalid offset $(inst.memarg.offset)"))
+                throw(ValidationError("$(val.func.name): invalid offset $(inst.memarg.offset)"))
             end            
         end
     end
 
     fntype = inst_func_type(val, inst)
+    # @info WC.Wat(inst) fntype val.stack
 
     # WC._printwasm(stdout, inst)
     # print(" ")
@@ -213,7 +226,7 @@ function validate_inst(val, inst)
         pop!(val.block_types)
     end
 
-    if inst isa return_ || inst isa br
+    if inst isa return_ || inst isa br || inst isa br_table
         val.type_unreachable = true
     else
         val.type_unreachable = false
@@ -241,7 +254,7 @@ inst_func_type(val, ::return_) = FuncType(copy(val.func.fntype.results), [])
 
 function inst_func_type(val, bt::br_table)
     bt = val.block_types[end-bt.default]
-    FuncType([bt.params..., i32], [])
+    FuncType([bt.results..., i32], [])
 end
 
 inst_func_type(val, b::br) = FuncType(copy(val.block_types[end-b.label].results), [])

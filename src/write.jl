@@ -328,9 +328,9 @@ wwrite(io::IO, sc::string_const) = wwrite(io, 0xfb, UInt32(0x82), sc.stringidx -
 
 function write_block_type(io::IO, fntype::FuncType)
     fntype == voidtype && return write(io, 0x40)
-    @assert isempty(fntype.params) "not supported"
-    @assert length(fntype.results) == 1 "> 1 results not supported"
-    wwrite(io, only(fntype.results))
+    length(fntype.results) == 1 && return wwrite(io, only(fntype.results))
+    fntypes = get(io, :fntypes, nothing)
+    wwrite(io, findfirst(==(fntype), fntypes) - 1)
 end
 
 function wwrite(io::IO, block::Union{Loop,Block})
@@ -459,13 +459,22 @@ function wwrite(io::IO, wmod::Module; names=true, producers=true)
     # 1. Type Section
     @debug "Type section" pos = position(io)
     fntypes = copy(wmod.types)
-    fntypes = union!(fntypes, unique(map(f -> f.fntype, wmod.funcs)))
+    # fntypes = union!(fntypes, unique(map(f -> f.fntype, wmod.funcs)))
+    for func in wmod.funcs
+        !(func.fntype in fntypes) && push!(fntypes, func.fntype)
+        foreach(func) do inst
+            if inst isa ContainerInst && !(inst.fntype in fntypes)
+                push!(fntypes, inst.fntype)
+            end
+        end
+    end
     for imp in wmod.imports
         (imp isa FuncImport || imp isa TagImport) || continue
         if isnothing(findfirst(==(imp.fntype), fntypes))
             push!(fntypes, imp.fntype)
         end
     end
+    # TODO: global code, data code
     sio = IOBuffer()
     wwrite(sio, fntypes)
     buf = take!(sio)
@@ -617,7 +626,7 @@ function wwrite(io::IO, wmod::Module; names=true, producers=true)
             wwrite(cio, loc)
             i += n
         end
-        wwrite(cio, inst)
+        wwrite(IOContext(cio, :fntypes => fntypes), inst)
         wwrite(cio, 0x0B)
         buf = take!(cio)
         wwrite(sio, buf)
