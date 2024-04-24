@@ -682,7 +682,7 @@ function interpret(instance, frame, expr)
             pop_label_stack!(inst.label)
         elseif inst isa br_table
             idx = pop!(frame.value_stack)::Int32 + 1
-            dest = if idx < 0 || idx > length(inst.labels)
+            dest = if idx <= 0 || idx > length(inst.labels)
                 inst.default
             else
                 inst.labels[idx]
