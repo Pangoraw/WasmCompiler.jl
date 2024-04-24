@@ -228,6 +228,14 @@ function read_inst(io::IO)
         return br(LEB128.decode(io, UInt32))
     elseif tag == 0x0d
         return br_if(LEB128.decode(io, UInt32))
+    elseif tag == 0x0e
+        nlabels = LEB128.decode(io, UInt32)
+        labels = Int[]
+        for _ in 1:nlabels
+            push!(labels, LEB128.decode(io, UInt32))
+        end
+        default = LEB128.decode(io, UInt32)
+        return br_table(labels, default)
     elseif tag == 0x10
         return call(one(Index) + LEB128.decode(io, UInt32))
     elseif tag == 0x1f

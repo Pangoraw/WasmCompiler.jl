@@ -387,6 +387,7 @@ wwrite(io::IO, ::rethrow_) = wwrite(io, 0x09, UInt32(4))
 wwrite(io::IO, t::throw_ref) = wwrite(io, 0x0a, t.tag - one(UInt32))
 wwrite(io::IO, b::br) = wwrite(io, 0x0c, b.label)
 wwrite(io::IO, b::br_if) = wwrite(io, 0x0d, b.label)
+wwrite(io::IO, b::br_table) = wwrite(io, 0x0e, b.labels, b.default)
 
 function wwrite(io::IO, expr::Vector{Inst})
     n = 0

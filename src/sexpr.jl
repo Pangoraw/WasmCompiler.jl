@@ -9,7 +9,7 @@ takes(_, _, _, ::Union{ref_as_non_null}) = 1
 takes(
     mod, func, ctx, inst
 ) = length(inst_func_type(FnValidator(mod, func, func.fntype, false, [], ctx), inst).params)
-takes(_, _, ctx, b::Union{br,br_table}) = length(ctx[end-b.label].params)
+takes(_, _, ctx, b::br) = length(ctx[end-b.label].params)
 takes(_, _, ctx, b::br_if) = 1 + length(ctx[end-b.label].params)
 takes(wmod, _, _, ::array_new) = 2 # elty, length
 takes(wmod, _, _, sn::struct_new) = length(_find_type(wmod, sn.typeidx).fields)

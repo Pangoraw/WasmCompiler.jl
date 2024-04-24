@@ -76,7 +76,7 @@ function validate_inst(val, inst)
         return
     end
 
-    validate_label(label) = 
+    validate_label(label) =
         label >= length(val.block_types) &&
         throw(ValidationError("$(val.func.name): unknown label $label"))
     if inst isa br || inst isa br_if
@@ -86,6 +86,21 @@ function validate_inst(val, inst)
     if inst isa br_table
         foreach(validate_label, inst.labels)
         validate_label(inst.default)
+        default_typ = val.block_types[end-inst.default]
+        for label in inst.labels
+            label_typ = val.block_types[end-label]
+            if label_typ.results != default_typ.results
+                label_typ1 = "[" * join(map(string, label_typ.results), ", ") * "]"
+                default_typ1 = "[" * join(map(string, default_typ.results), ", ") * "]"
+                throw(ValidationError("$(val.func.name): type mismatch: labels have inconsistent types got $label_typ1 and $default_typ1"))
+            end
+        end
+    end
+
+    if inst isa Union{local_get,local_set,local_tee}
+        if !(firstindex(val.func.locals) <= inst.n <= lastindex(val.func.locals))
+            throw(ValidationError("$(val.func.name): unknown local $(inst.n)"))
+        end
     end
 
     # Validate that module has a memory
@@ -104,7 +119,7 @@ function validate_inst(val, inst)
         if !(inst isa memory_copy || inst isa memory_grow)
             if inst.memarg.offset < 0
                 throw(ValidationError("$(val.func.name): invalid offset $(inst.memarg.offset)"))
-            end            
+            end
         end
     end
 
@@ -240,9 +255,6 @@ inst_func_type(_, ::i64_const) = FuncType([], [i64])
 inst_func_type(_, ::f32_const) = FuncType([], [f32])
 inst_func_type(_, ::f64_const) = FuncType([], [f64])
 
-inst_func_type(_, ::i32_trunc_f32_u) = FuncType([f32], [i32])
-inst_func_type(_, ::i32_trunc_f32_s) = FuncType([f32], [i32])
-
 inst_func_type(_, ::nop) = FuncType([], [])
 
 inst_func_type(val, lg::local_get) = FuncType([], [val.func.locals[lg.n]])
@@ -335,6 +347,16 @@ inst_func_type(_, ::f64_convert_i64_s) = FuncType([i64], [f64])
 inst_func_type(_, ::f64_convert_i64_u) = FuncType([i64], [f64])
 inst_func_type(_, ::f64_convert_i32_s) = FuncType([i32], [f64])
 inst_func_type(_, ::f64_convert_i32_u) = FuncType([i32], [f64])
+
+inst_func_type(_, ::i32_trunc_f32_s) = FuncType([f32], [i32])
+inst_func_type(_, ::i32_trunc_f32_u) = FuncType([f32], [i32])
+inst_func_type(_, ::i32_trunc_f64_s) = FuncType([f64], [i32])
+inst_func_type(_, ::i32_trunc_f64_u) = FuncType([f64], [i32])
+
+inst_func_type(_, ::i64_trunc_f32_s) = FuncType([f32], [i64])
+inst_func_type(_, ::i64_trunc_f32_u) = FuncType([f32], [i64])
+inst_func_type(_, ::i64_trunc_f64_s) = FuncType([f64], [i64])
+inst_func_type(_, ::i64_trunc_f64_u) = FuncType([f64], [i64])
 
 function inst_func_type(val, c::call)
     fntype = get_function_type(val.mod, c.func)

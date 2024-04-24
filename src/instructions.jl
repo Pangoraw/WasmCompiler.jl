@@ -535,7 +535,7 @@ struct br_if <: Inst
     label::Index
 end
 struct br_table <: Inst
-    labels::Vector{Int}
+    labels::Vector{Index}
     default::Index
 end
 struct br_on_cast <: Inst

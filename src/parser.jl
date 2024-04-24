@@ -45,7 +45,16 @@ function lex(io::IO)
 
             push!(tokens, Token(position(io), '('))
         elseif symstart(c)
-            push!(tokens, Token(position(io), read_sym(io)))
+            pos = position(io)
+            sym = read_sym(io)
+            tok = if sym === :nan && peek(io, Char) == ':'
+                read(io, Char)
+                N = read_number(io)
+                reinterpret(Float64, N)
+            else
+                sym
+            end
+            push!(tokens, Token(pos, tok))
         elseif numberstart(c)
             push!(tokens, Token(position(io), read_number(io)))
         elseif c == '"'
@@ -133,6 +142,11 @@ function read_number(io::IO)
 
     s = ""
 
+    nan = false
+    if peek(io, Char) == 'n' && read_sym(io) === :nan && read(io, Char) == ':'
+        nan = true
+    end
+
     base = 10
     if peek(io, Char) == '0'
         s *= read(io, Char)
@@ -185,7 +199,8 @@ function read_number(io::IO)
         end
         return parse(Float64, s)
     end
-
+    
+    n = nan ? reinterpret(float(typeof(n)), n) : n
     neg ? -n : n
 end
 
@@ -215,7 +230,7 @@ end
 issexpr(val::Vector{Any}, head) = length(val) >= 1 && first(val) === head
 issexpr(_, _) = false
 
-function parse_valtype(ex)
+function parse_valtype(ctx, ex)
     if ex === :i32
         i32
     elseif ex === :i64
@@ -226,6 +241,18 @@ function parse_valtype(ex)
         f64
     elseif ex === :v128
         v128
+    elseif ex === :externref
+        ExternRef(false)
+    elseif ex === :eqref
+        EqRef(false)
+    elseif ex isa Vector && first(ex) === :ref
+        popfirst!(ex)
+        s = popfirst!(ex)
+        null = s === :null
+
+        # resolve type here
+        t = _resolve_type(ctx, isempty(ex) ? s : popfirst!(ex))
+        StructRef(null,t)
     else
         error("unknown valtype $(ex)")
     end
@@ -246,9 +273,9 @@ function parse_functype!(args, ctx)
             locname = first(p)
             ctx.named_locals[locname] = length(params) + 1
             @assert length(p) == 2
-            ValType[parse_valtype(last(p))]
+            ValType[parse_valtype(ctx, last(p))]
         else
-            parse_valtype.(p)
+            parse_valtype.((ctx,), p)
         end
 
         append!(params, valtypes)
@@ -257,7 +284,7 @@ function parse_functype!(args, ctx)
     results = ValType[]
     while length(args) >= 1 && issexpr(first(args), :result)
         _, p... = popfirst!(args)
-        append!(results, parse_valtype.(p))
+        append!(results, parse_valtype.((ctx,), p))
     end
 
     newfntype = FuncType(params, results)
@@ -271,6 +298,43 @@ function parse_functype!(args, ctx)
     end
 
     return newfntype
+end
+
+function parse_struct_type!(args, ctx)
+    local structtype = StructType(nothing, nothing, [])
+
+    if !isempty(args)
+        if issexpr(first(args), :sub)
+            args = only(args); popfirst!(args)
+            sub = popfirst!(args)
+        else
+            sub = nothing
+        end
+
+        while !isempty(args)
+            popfirst!(args)
+            isempty(args) && break
+            f = popfirst!(args)
+            if !issexpr(f, :field)
+                error("invalid struct")
+            end
+            popfirst!(f)
+
+            while !isempty(f)
+                mut = false
+                if first(f) === :mut
+                    popfirst!(f)
+                    mut = true
+                elseif first(f) isa Symbol && startswith(string(first(f)), "\$")
+                    name = popfirst!(f)
+                end
+                t = parse_valtype(ctx, popfirst!(f))
+                push!(structtype.fields, StructField(t, nothing, mut))
+            end
+        end
+    end
+
+    return structtype
 end
 
 _resolve_local(ctx, idx) = idx isa Int ? idx + 1 : ctx.named_locals[idx]
@@ -323,9 +387,10 @@ function make_inst_linear!(inst, args, ctx)
             labels = Int[]
     
             while first(args) isa Symbol || first(args) isa Int
+                label = popfirst!(args)
                 push!(
                     labels,
-                    _resolve_label(ctx, popfirst!(args)),
+                    _resolve_label(ctx, label),
                 )
             end
     
@@ -396,21 +461,26 @@ end
 
 # for wast
 function make_inst!(inst, ex, ctx)
-    if length(ex) == 0
-        return
-    end
-
-    if first(ex) isa Vector{Any}
-        while !isempty(ex)
-            e = popfirst!(ex)
-            make_inst!(inst, e, ctx)
+    if ex isa Symbol
+        head = ex
+        args = []
+    else
+        if length(ex) == 0
+            return
         end
-        return
-    end
 
-    head = popfirst!(ex)
-    args = ex
-    head = replace(string(head), '.' => '_') |> Symbol
+        if first(ex) isa Vector{Any}
+            while !isempty(ex)
+                e = popfirst!(ex)
+                make_inst!(inst, e, ctx)
+            end
+            return
+        end
+
+        head = popfirst!(ex)
+        args = ex
+        head = replace(string(head), '.' => '_') |> Symbol
+    end
 
     if head === :i32_const
         val = popfirst!(args)
@@ -502,10 +572,11 @@ function make_inst!(inst, ex, ctx)
     elseif head === :br_table
         labels = Int[]
 
-        while !isempty(args) && (first(args) isa Symbol || first(args) isa Int)
+        while !isempty(args) && ((first(args) isa Symbol && first(args) !== :end) || first(args) isa Int)
+            label = popfirst!(args)
             push!(
                 labels,
-                _resolve_label(ctx, popfirst!(args)),
+                _resolve_label(ctx, label),
             )
         end
 
@@ -566,6 +637,8 @@ function make_inst!(inst, ex, ctx)
         make_inst!(newinst, args, ctx)
         pop!(ctx.labels)
         push!(inst, Block(fntype, newinst))
+    elseif head === :ref_extern
+        push!(inst, i32_const(popfirst!(args)))
     elseif isdefined(WC, head) && getproperty(WC, head) isa Type && getproperty(WC, head) <: Inst
         make_inst!(inst, args, ctx)
         push!(inst, getproperty(WC, head)())
@@ -610,15 +683,16 @@ function make_module!(mod, exprs)
                 error("invalid global")
             end
 
+            ctx = FuncContext(mod)
             mut, type = if first(args) isa Vector{Any} && first(args)[1] === :mut
-                _, a = popfirst!(args) 
-                true, parse_valtype(a)
+                _, a = popfirst!(args)
+                true, parse_valtype(ctx, a)
             else
-                false, parse_valtype(popfirst!(args))
+                false, parse_valtype(ctx, popfirst!(args))
             end
 
             inst = Inst[]
-            make_inst!(inst, args, FuncContext(mod))
+            make_inst!(inst, args, ctx)
 
             push!(mod.globals, Global(name, GlobalType(mut, type), inst))
             named_globals[Symbol('$', name)] = length(mod.globals)
@@ -637,11 +711,15 @@ function make_module!(mod, exprs)
             if length(args) >= 1 && issexpr(first(args), :func)
                 rest = only(args)
                 popfirst!(rest)
+                t = parse_functype!(rest, FuncContext(mod))
+            elseif length(args) >= 1 && issexpr(first(args), :struct)
+                rest = only(args)
+                t = parse_struct_type!(rest, FuncContext(mod))
             else
                 rest = args
+                t = parse_functype!(rest, FuncContext(mod))
             end
 
-            t = parse_functype!(rest, FuncContext(mod))
             push!(mod.types, t)
 
             if name !== nothing
@@ -682,9 +760,9 @@ function make_module!(mod, exprs)
                 locname = first(p)
                 ctx.named_locals[locname] = length(locals) + 1
                 @assert length(p) == 2
-                ValType[parse_valtype(last(p))]
+                ValType[parse_valtype(ctx, last(p))]
             else
-                parse_valtype.(p)
+                parse_valtype.((ctx,), p)
             end
 
             append!(locals, valtypes)

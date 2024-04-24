@@ -18,22 +18,25 @@ using ..WasmCompiler:
     i32_rotl, i32_rotr, i64_rotl, i64_rotr,
     i32_shr_s, i32_shr_u, i32_shl, i64_shr_s, i64_shr_u, i64_shl,
     Block, If, Loop, i32_mul,
-    f64_convert_i64_s, f64_sqrt, f32_sqrt,
-    f64_convert_i64_u,
+    f64_sqrt, f32_sqrt,
     i32_load, i64_load, f32_load, f64_load,
     i32_load8_s, i32_load8_u, i32_load16_s, i32_load16_u,
     i64_load8_s, i64_load8_u, i64_load16_s, i64_load16_u,
     i64_load32_s, i64_load32_u,
     i32_store, i64_store, f32_store, f64_store,
     i32_store8, i32_store16, i64_store8, i64_store16, i64_store32,
-    f32_add, f32_sub, f32_mul, f32_div, f32_nearest,
-    f64_add, f64_sub, f64_mul, f64_div, f64_nearest,
+    f32_neg, f32_add, f32_sub, f32_mul, f32_div, f32_nearest,
+    f64_neg, f64_add, f64_sub, f64_mul, f64_div, f64_nearest,
     f32_ne, f32_eq, f32_gt, f32_ge, f32_le, f32_lt, 
     f64_ne, f64_eq, f64_gt, f64_ge, f64_le, f64_lt, 
     f32_demote_f64, f64_promote_f32,
     i32_trunc_f32_s, i32_trunc_f32_u, f32_reinterpret_i32,
     i64_trunc_f64_s, i64_trunc_f64_u, f64_reinterpret_i64,
     i64_extend_i32_s, i64_extend_i32_u,
+    f32_convert_i32_u, f32_convert_i64_u,
+    f32_convert_i32_s, f32_convert_i64_s,
+    f64_convert_i32_s, f64_convert_i64_s,
+    f64_convert_i32_u, f64_convert_i64_u,
     call,
     v128_const, v128bin,
     global_set, global_get,
@@ -403,10 +406,26 @@ function interpret(instance, frame, expr)
         elseif inst isa i64_rotr
             b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
             push!(frame.value_stack, bitrotate(a, -mod(b, 64)))
+        elseif inst isa f32_convert_i32_u
+            push!(frame.value_stack, Float32(reinterpret(UInt32, pop!(frame.value_stack)::Int32)))
+        elseif inst isa f32_convert_i32_s
+            push!(frame.value_stack, Float32(pop!(frame.value_stack)::Int32))
+        elseif inst isa f32_convert_i64_u
+            push!(frame.value_stack, Float32(reinterpret(UInt64, pop!(frame.value_stack)::Int64)))
+        elseif inst isa f32_convert_i64_s
+            push!(frame.value_stack, Float32(pop!(frame.value_stack)::Int64))
+        elseif inst isa f64_convert_i32_s
+            push!(frame.value_stack, Float64(pop!(frame.value_stack)::Int32))
+        elseif inst isa f64_convert_i32_u
+            push!(frame.value_stack, Float64(reinterpret(UInt32, pop!(frame.value_stack)::Int32)))
         elseif inst isa f64_convert_i64_s
             push!(frame.value_stack, Float64(pop!(frame.value_stack)::Int64))
         elseif inst isa f64_convert_i64_u
             push!(frame.value_stack, Float64(reinterpret(UInt64, pop!(frame.value_stack)::Int64)))
+        elseif inst isa f32_neg
+            push!(frame.value_stack, -pop!(frame.value_stack)::Float32)
+        elseif inst isa f64_neg
+            push!(frame.value_stack, -pop!(frame.value_stack)::Float64)
         elseif inst isa f32_add
             push!(frame.value_stack, pop!(frame.value_stack)::Float32 + pop!(frame.value_stack)::Float32)
         elseif inst isa f32_sub
@@ -496,7 +515,7 @@ function interpret(instance, frame, expr)
         elseif inst isa i32_load8_s
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
             check_inbounds(instance.mems[1], ptr)
-            push!(frame.value_stack, Int32(reinterpret(Int8, instance.mems[1].buf[1][1 + ptr])))
+            push!(frame.value_stack, Int32(reinterpret(Int8, instance.mems[1].buf[1 + ptr])))
         elseif inst isa i32_load8_u
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
             check_inbounds(instance.mems[1], ptr)
