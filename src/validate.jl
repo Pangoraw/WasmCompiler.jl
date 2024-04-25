@@ -44,7 +44,7 @@ function validate_global(mod, i)
         name = "global " * something(glob.name, i-1)
         throw(ValidationError("$(name): init is not constant"))
     end
-    val = ValidatorContext(mod, glob, fntype, ValType[], FuncType[fntype])
+    val = ValidatorContext(mod, glob, fntype, false, ValType[], FuncType[fntype])
     for inst in glob.init
         validate_inst(val, inst)
     end
