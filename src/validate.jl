@@ -1,6 +1,6 @@
-mutable struct FnValidator
+mutable struct ValidatorContext
     mod::Module
-    func::Func
+    func::Union{Global,Func}
 
     fntype::FuncType
 
@@ -16,12 +16,46 @@ end
 Base.showerror(io::IO, ve::ValidationError) = print(io, ve.msg)
 
 function validate(mod)
+    # https://webassembly.github.io/spec/core/valid/modules.html#globals
+    n_global_imports = count(imp -> imp isa GlobalImport, mod.imports)
+    for i in eachindex(mod.globals)
+        validate_global(mod, i + n_global_imports)
+    end
+
     foreach(fn -> validate_fn(mod, fn), mod.funcs)
+
+    # https://webassembly.github.io/spec/core/valid/modules.html#start-function
+    if !isnothing(mod.start)
+        func = mod.funcs[mod.start]
+        if func.fntype != voidtype
+            start_ty = "[" * join(map(string, func.fntype.params), ", ") * "] -> [" * join(map(string, func.fntype.results, ", ")) * "]"
+            throw(ValidationError("invalid type for start function: expected [] -> [], got $start_ty"))
+        end
+    end
+
     mod
 end
 
+# https://webassembly.github.io/spec/core/valid/modules.html#globals
+function validate_global(mod, i)
+    glob = mod.globals[i - count(imp -> imp isa GlobalImport, mod.imports)]
+    fntype = FuncType([], [glob.type.type])
+    if !is_constant(glob.init)
+        name = "global " * something(glob.name, i-1)
+        throw(ValidationError("$(name): init is not constant"))
+    end
+    val = ValidatorContext(mod, glob, fntype, ValType[], FuncType[fntype])
+    for inst in glob.init
+        validate_inst(val, inst)
+    end
+    if !val.type_unreachable && val.stack != fntype.results
+        name = "global " * something(glob.name, i-1)
+        throw(ValidationError("$(name): type mismatch: invalid return value, expected $(func.fntype.results), got $(val.stack)"))
+    end
+end
+
 function validate_fn(mod::Module, func::Func)
-    val = FnValidator(mod, func, func.fntype, false, ValType[], FuncType[func.fntype])
+    val = ValidatorContext(mod, func, func.fntype, false, ValType[], FuncType[func.fntype])
 
     for inst in func.inst
         validate_inst(val, inst)
@@ -248,6 +282,13 @@ function validate_inst(val, inst)
     end
 
     append!(val.stack, fntype.results)
+end
+
+# https://webassembly.github.io/spec/core/valid/instructions.html#constant-expressions
+function is_constant(expr::Vector{Inst})
+    all(expr) do inst
+        inst isa Union{i32_const,i64_const,f32_const,f64_const,ref_null,global_get} # ref_func
+    end
 end
 
 inst_func_type(_, ::i32_const) = FuncType([], [i32])
