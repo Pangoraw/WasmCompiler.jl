@@ -38,7 +38,7 @@ using ..WasmCompiler:
     f64_convert_i32_s, f64_convert_i64_s,
     f64_convert_i32_u, f64_convert_i64_u,
     call,
-    memory_grow,
+    memory_grow, memory_copy, memory_fill,
     v128_const, v128bin,
     global_set, global_get,
     select, br, br_if, br_table, nop, unreachable, return_, drop,
@@ -682,6 +682,17 @@ function interpret(instance, frame, expr)
                 fill!(@view(mem.buf[len+1:end]), 0x00)
                 push!(frame.value_stack, Int32(1))
             end
+        elseif inst isa memory_copy
+            N, src, dest = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
+            buf = instance.mems[1].buf
+            # TODO: inbounds?
+            copyto!(buf, dest, buf, src, N)
+        elseif inst isa memory_fill
+            N, val, dest = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
+            0 <= val < 256 || error("invalid val")
+            # TODO: inbounds?
+            buf = instance.mems[1].buf
+            fill!(view(buf, dest:dest+N-1), val)
         elseif inst isa If
             cond = pop!(frame.value_stack)::Int32
 
