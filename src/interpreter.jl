@@ -38,6 +38,7 @@ using ..WasmCompiler:
     f64_convert_i32_s, f64_convert_i64_s,
     f64_convert_i32_u, f64_convert_i64_u,
     call,
+    memory_grow,
     v128_const, v128bin,
     global_set, global_get,
     select, br, br_if, br_table, nop, unreachable, return_, drop,
@@ -668,6 +669,19 @@ function interpret(instance, frame, expr)
             elseif inst.lane == Lanes.f64
                 WC.f64x2(res...)
             end)
+        elseif inst isa memory_grow
+            mem = instance.mems[1]
+            len = length(mem)
+            n_pages = div(len, PAGE_SIZE)
+            to_add = pop!(frame.value_stack)::Int32
+            new_pages = n_pages + to_add
+            if new_pages > mem.type.max
+                push!(frame.value_stack, Int32(-1))
+            else
+                resize!(mem.buf, new_pages * PAGE_SIZE)
+                fill!(@view(mem.buf[len+1:end]), 0x00)
+                push!(frame.value_stack, Int32(1))
+            end
         elseif inst isa If
             cond = pop!(frame.value_stack)::Int32
 
