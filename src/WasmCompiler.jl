@@ -96,7 +96,7 @@ macro code_wasm(exprs...)
             if $(esc(validate)) !== false
                 WC.validate(module_)
             end
-            
+
             if $(esc(optimize)) !== false
                 lvl = !($(esc(optimize)) isa Int) ? 1 : $(esc(optimize))
                 module_ = WasmCompiler.optimize!(module_, lvl)

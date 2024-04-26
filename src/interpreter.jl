@@ -1,5 +1,7 @@
 module Interpreter
 
+include("./runtime.jl")
+
 using ..WasmCompiler
 using ..WasmCompiler: GlobalType, Module, MemoryType, ValType, FuncType, Lanes, MathOperators
 using ..WasmCompiler:
@@ -17,9 +19,12 @@ using ..WasmCompiler:
     i32_popcnt, i32_clz, i32_ctz, i64_popcnt, i64_clz, i64_ctz,
     i32_rotl, i32_rotr, i64_rotl, i64_rotr,
     i32_shr_s, i32_shr_u, i32_shl, i64_shr_s, i64_shr_u, i64_shl,
+    f32_abs, f64_abs, f32_ceil, f64_ceil, f32_floor, f64_floor, f32_trunc, f64_trunc,
     Block, If, Loop, i32_mul,
     f64_sqrt, f32_sqrt,
     i32_load, i64_load, f32_load, f64_load,
+    f32_max, f32_min, f32_sqrt, f64_max, f64_min, f64_sqrt,
+    f32_copysign, f64_copysign,
     i32_load8_s, i32_load8_u, i32_load16_s, i32_load16_u,
     i64_load8_s, i64_load8_u, i64_load16_s, i64_load16_u,
     i64_load32_s, i64_load32_u,
@@ -73,6 +78,10 @@ struct Instance
     imported_funcs::Vector{Any}
     mems::Vector{Memory}
     globals::Vector{Global}
+
+    # Number of calls
+    call_stats::Vector{UInt}
+    compiled_funcs::Vector{Union{Nothing,Function}}
 end
 
 struct FuncRef
@@ -112,8 +121,11 @@ function instantiate(module_, imports=(;))
     imported_funcs = map(imp -> imports[imp.mod_name][imp.name],
                          filter(imp -> imp isa WC.FuncImport, module_.imports))
 
+    num_funcs = length(module_.funcs)
     globals = Global[]
-    inst = Instance(module_, imported_funcs, mems, globals)
+    inst = Instance(module_, imported_funcs, mems,
+                              globals, zeros(UInt, num_funcs),
+                              fill(nothing, (num_funcs,)))
 
     for global_ in module_.globals
         T = jltype(global_.type.type)
@@ -195,76 +207,363 @@ function interpret(instance, frame, expr)
             push!(frame.value_stack, inst.val)
         elseif inst isa f64_const
             push!(frame.value_stack, inst.val)
+        elseif inst isa f32_abs
+            a = pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.f32_abs(a))
+        elseif inst isa f32_add
+            b, a = pop!(frame.value_stack)::Float32, pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.f32_add(a, b))
+        elseif inst isa f32_ceil
+            a = pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.f32_ceil(a))
+        elseif inst isa f32_convert_i32_s
+            a = pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.f32_convert_i32_s(a))
+        elseif inst isa f32_convert_i32_u
+            a = pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.f32_convert_i32_u(a))
+        elseif inst isa f32_convert_i64_s
+            a = pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.f32_convert_i64_s(a))
+        elseif inst isa f32_convert_i64_u
+            a = pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.f32_convert_i64_u(a))
+        elseif inst isa f32_copysign
+            b, a = pop!(frame.value_stack)::Float32, pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.f32_copysign(a, b))
+        elseif inst isa f32_demote_f64
+            a = pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.f32_demote_f64(a))
+        elseif inst isa f32_div
+            b, a = pop!(frame.value_stack)::Float32, pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.f32_div(a, b))
+        elseif inst isa f32_eq
+            b, a = pop!(frame.value_stack)::Float32, pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.f32_eq(a, b))
+        elseif inst isa f32_floor
+            a = pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.f32_floor(a))
+        elseif inst isa f32_ge
+            b, a = pop!(frame.value_stack)::Float32, pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.f32_ge(a, b))
+        elseif inst isa f32_gt
+            b, a = pop!(frame.value_stack)::Float32, pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.f32_gt(a, b))
+        elseif inst isa f32_le
+            b, a = pop!(frame.value_stack)::Float32, pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.f32_le(a, b))
         elseif inst isa f32_lt
-            b, a = pop!(frame.value_stack), pop!(frame.value_stack)
-            push!(frame.value_stack, Int32(a::Float32 < b::Float32))
-        elseif inst isa f64_lt
-            b, a = pop!(frame.value_stack), pop!(frame.value_stack)
-            push!(frame.value_stack, Int32(a::Float64 < b::Float64))
+            b, a = pop!(frame.value_stack)::Float32, pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.f32_lt(a, b))
+        elseif inst isa f32_max
+            b, a = pop!(frame.value_stack)::Float32, pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.f32_max(a, b))
+        elseif inst isa f32_min
+            b, a = pop!(frame.value_stack)::Float32, pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.f32_min(a, b))
+        elseif inst isa f32_mul
+            b, a = pop!(frame.value_stack)::Float32, pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.f32_mul(a, b))
+        elseif inst isa f32_ne
+            b, a = pop!(frame.value_stack)::Float32, pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.f32_ne(a, b))
+        elseif inst isa f32_nearest
+            a = pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.f32_nearest(a))
+        elseif inst isa f32_neg
+            a = pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.f32_neg(a))
+        elseif inst isa f32_reinterpret_i32
+            a = pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.f32_reinterpret_i32(a))
         elseif inst isa f32_sqrt
-            push!(frame.value_stack, sqrt(pop!(frame.value_stack)::Float32))
+            a = pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.f32_sqrt(a))
+        elseif inst isa f32_sub
+            b, a = pop!(frame.value_stack)::Float32, pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.f32_sub(a, b))
+        elseif inst isa f32_trunc
+            a = pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.f32_trunc(a))
+        elseif inst isa f64_abs
+            a = pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.f64_abs(a))
+        elseif inst isa f64_add
+            b, a = pop!(frame.value_stack)::Float64, pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.f64_add(a, b))
+        elseif inst isa f64_ceil
+            a = pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.f64_ceil(a))
+        elseif inst isa f64_convert_i32_s
+            a = pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.f64_convert_i32_s(a))
+        elseif inst isa f64_convert_i32_u
+            a = pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.f64_convert_i32_u(a))
+        elseif inst isa f64_convert_i64_s
+            a = pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.f64_convert_i64_s(a))
+        elseif inst isa f64_convert_i64_u
+            a = pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.f64_convert_i64_u(a))
+        elseif inst isa f64_copysign
+            b, a = pop!(frame.value_stack)::Float64, pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.f64_copysign(a, b))
+        elseif inst isa f64_div
+            b, a = pop!(frame.value_stack)::Float64, pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.f64_div(a, b))
+        elseif inst isa f64_eq
+            b, a = pop!(frame.value_stack)::Float64, pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.f64_eq(a, b))
+        elseif inst isa f64_floor
+            a = pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.f64_floor(a))
+        elseif inst isa f64_ge
+            b, a = pop!(frame.value_stack)::Float64, pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.f64_ge(a, b))
+        elseif inst isa f64_gt
+            b, a = pop!(frame.value_stack)::Float64, pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.f64_gt(a, b))
+        elseif inst isa f64_le
+            b, a = pop!(frame.value_stack)::Float64, pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.f64_le(a, b))
+        elseif inst isa f64_lt
+            b, a = pop!(frame.value_stack)::Float64, pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.f64_lt(a, b))
+        elseif inst isa f64_max
+            b, a = pop!(frame.value_stack)::Float64, pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.f64_max(a, b))
+        elseif inst isa f64_min
+            b, a = pop!(frame.value_stack)::Float64, pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.f64_min(a, b))
+        elseif inst isa f64_mul
+            b, a = pop!(frame.value_stack)::Float64, pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.f64_mul(a, b))
+        elseif inst isa f64_ne
+            b, a = pop!(frame.value_stack)::Float64, pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.f64_ne(a, b))
+        elseif inst isa f64_nearest
+            a = pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.f64_nearest(a))
+        elseif inst isa f64_neg
+            a = pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.f64_neg(a))
+        elseif inst isa f64_promote_f32
+            a = pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.f64_promote_f32(a))
+        elseif inst isa f64_reinterpret_i64
+            a = pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.f64_reinterpret_i64(a))
         elseif inst isa f64_sqrt
-            push!(frame.value_stack, sqrt(pop!(frame.value_stack)::Float64))
+            a = pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.f64_sqrt(a))
+        elseif inst isa f64_sub
+            b, a = pop!(frame.value_stack)::Float64, pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.f64_sub(a, b))
+        elseif inst isa f64_trunc
+            a = pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.f64_trunc(a))
+        elseif inst isa i32_add
+            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_add(a, b))
+        elseif inst isa i32_and
+            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_and(a, b))
+        elseif inst isa i32_clz
+            a = pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_clz(a))
+        elseif inst isa i32_ctz
+            a = pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_ctz(a))
+        elseif inst isa i32_div_s
+            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_div_s(a, b))
+        elseif inst isa i32_div_u
+            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_div_u(a, b))
         elseif inst isa i32_eq
-            push!(frame.value_stack, Int32(pop!(frame.value_stack)::Int32 == pop!(frame.value_stack)::Int32))
-        elseif inst isa i32_ne
-            push!(frame.value_stack, Int32(pop!(frame.value_stack)::Int32 != pop!(frame.value_stack)::Int32))
+            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_eq(a, b))
         elseif inst isa i32_eqz
-            push!(frame.value_stack, Int32(pop!(frame.value_stack)::Int32 == Int32(0)))
-        elseif inst isa i32_le_s
-            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
-            push!(frame.value_stack, Int32(a <= b))
-        elseif inst isa i32_le_u
-            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
-            push!(frame.value_stack, Int32(reinterpret(UInt32, a) <= reinterpret(UInt32, b)))
-        elseif inst isa i32_lt_s
-            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
-            push!(frame.value_stack, Int32(a < b))
-        elseif inst isa i32_lt_u
-            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
-            push!(frame.value_stack, Int32(reinterpret(UInt32, a) < reinterpret(UInt32, b)))
-        elseif inst isa i32_gt_s
-            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
-            push!(frame.value_stack, Int32(a > b))
-        elseif inst isa i32_gt_u
-            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
-            push!(frame.value_stack, Int32(reinterpret(UInt32, a) > reinterpret(UInt32, b)))
+            a = pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_eqz(a))
+        elseif inst isa i32_extend16_s
+            a = pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_extend16_s(a))
+        elseif inst isa i32_extend8_s
+            a = pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_extend8_s(a))
+        elseif inst isa i64_extend_i32_s
+            a = pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i64_extend_i32_s(a))
+        elseif inst isa i64_extend_i32_u
+            a = pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i64_extend_i32_u(a))
         elseif inst isa i32_ge_s
             b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
-            push!(frame.value_stack, Int32(a >= b))
+            push!(frame.value_stack, Runtime.i32_ge_s(a, b))
         elseif inst isa i32_ge_u
             b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
-            push!(frame.value_stack, Int32(reinterpret(UInt32, a) >= reinterpret(UInt32, b)))
+            push!(frame.value_stack, Runtime.i32_ge_u(a, b))
+        elseif inst isa i32_gt_s
+            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_gt_s(a, b))
+        elseif inst isa i32_gt_u
+            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_gt_u(a, b))
+        elseif inst isa i32_le_s
+            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_le_s(a, b))
+        elseif inst isa i32_le_u
+            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_le_u(a, b))
+        elseif inst isa i32_lt_s
+            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_lt_s(a, b))
+        elseif inst isa i32_lt_u
+            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_lt_u(a, b))
+        elseif inst isa i32_mul
+            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_mul(a, b))
+        elseif inst isa i32_ne
+            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_ne(a, b))
+        elseif inst isa i32_or
+            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_or(a, b))
+        elseif inst isa i32_popcnt
+            a = pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_popcnt(a))
+        elseif inst isa i32_rem_s
+            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_rem_s(a, b))
+        elseif inst isa i32_rem_u
+            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_rem_u(a, b))
+        elseif inst isa i32_rotl
+            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_rotl(a, b))
+        elseif inst isa i32_rotr
+            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_rotr(a, b))
+        elseif inst isa i32_shl
+            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_shl(a, b))
+        elseif inst isa i32_shr_s
+            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_shr_s(a, b))
+        elseif inst isa i32_shr_u
+            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_shr_u(a, b))
+        elseif inst isa i32_sub
+            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_sub(a, b))
+        elseif inst isa i32_wrap_i64
+            a = pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i32_wrap_i64(a))
+        elseif inst isa i32_xor
+            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
+            push!(frame.value_stack, Runtime.i32_xor(a, b))
+        elseif inst isa i64_add
+            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_add(a, b))
+        elseif inst isa i64_and
+            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_and(a, b))
+        elseif inst isa i64_clz
+            a = pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_clz(a))
+        elseif inst isa i64_ctz
+            a = pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_ctz(a))
+        elseif inst isa i64_div_s
+            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_div_s(a, b))
+        elseif inst isa i64_div_u
+            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_div_u(a, b))
         elseif inst isa i64_eq
-            push!(frame.value_stack, Int32(pop!(frame.value_stack)::Int64 === pop!(frame.value_stack)::Int64))
-        elseif inst isa i64_ne
-            push!(frame.value_stack, Int32(pop!(frame.value_stack)::Int64 !== pop!(frame.value_stack)::Int64))
+            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_eq(a, b))
         elseif inst isa i64_eqz
-            push!(frame.value_stack, Int32(pop!(frame.value_stack)::Int64 === Int64(0)))
-        elseif inst isa i64_le_s
-            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
-            push!(frame.value_stack, Int32(a <= b))
-        elseif inst isa i64_le_u
-            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
-            push!(frame.value_stack, Int32(reinterpret(UInt64, a) <= reinterpret(UInt64, b)))
-        elseif inst isa i64_lt_s
-            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
-            push!(frame.value_stack, Int32(a < b))
-        elseif inst isa i64_lt_u
-            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
-            push!(frame.value_stack, Int32(reinterpret(UInt64, a) < reinterpret(UInt64, b)))
-        elseif inst isa i64_gt_s
-            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
-            push!(frame.value_stack, Int32(a > b))
-        elseif inst isa i64_gt_u
-            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
-            push!(frame.value_stack, Int32(reinterpret(UInt64, a) > reinterpret(UInt64, b)))
+            a = pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_eqz(a))
+        elseif inst isa i64_extend16_s
+            a = pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_extend16_s(a))
+        elseif inst isa i64_extend32_s
+            a = pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_extend32_s(a))
+        elseif inst isa i64_extend8_s
+            a = pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_extend8_s(a))
         elseif inst isa i64_ge_s
             b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
-            push!(frame.value_stack, Int32(a >= b))
+            push!(frame.value_stack, Runtime.i64_ge_s(a, b))
         elseif inst isa i64_ge_u
             b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
-            push!(frame.value_stack, Int32(reinterpret(UInt64, a) >= reinterpret(UInt64, b)))
+            push!(frame.value_stack, Runtime.i64_ge_u(a, b))
+        elseif inst isa i64_gt_s
+            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_gt_s(a, b))
+        elseif inst isa i64_gt_u
+            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_gt_u(a, b))
+        elseif inst isa i64_le_s
+            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_le_s(a, b))
+        elseif inst isa i64_le_u
+            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_le_u(a, b))
+        elseif inst isa i64_lt_s
+            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_lt_s(a, b))
+        elseif inst isa i64_lt_u
+            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_lt_u(a, b))
+        elseif inst isa i64_mul
+            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_mul(a, b))
+        elseif inst isa i64_ne
+            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_ne(a, b))
+        elseif inst isa i64_or
+            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_or(a, b))
+        elseif inst isa i64_popcnt
+            a = pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_popcnt(a))
+        elseif inst isa i64_rem_s
+            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_rem_s(a, b))
+        elseif inst isa i64_rem_u
+            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_rem_u(a, b))
+        elseif inst isa i64_rotl
+            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_rotl(a, b))
+        elseif inst isa i64_rotr
+            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_rotr(a, b))
+        elseif inst isa i64_shl
+            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_shl(a, b))
+        elseif inst isa i64_shr_s
+            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_shr_s(a, b))
+        elseif inst isa i64_shr_u
+            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_shr_u(a, b))
+        elseif inst isa i64_sub
+            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_sub(a, b))
+        elseif inst isa i64_trunc_f64_s
+            a = pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.i64_trunc_f64_s(a))
+        elseif inst isa i64_xor
+            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
+            push!(frame.value_stack, Runtime.i64_xor(a, b))
         elseif inst isa local_get
             push!(frame.value_stack, frame.locals[inst.n])
         elseif inst isa local_set
@@ -279,224 +578,6 @@ function interpret(instance, frame, expr)
         elseif inst isa global_get
             g = instance.globals[inst.n]
             push!(frame.value_stack, g.val)
-        elseif inst isa i32_add
-            push!(frame.value_stack, pop!(frame.value_stack)::Int32 + pop!(frame.value_stack)::Int32)
-        elseif inst isa i32_sub
-            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
-            push!(frame.value_stack, a - b)
-        elseif inst isa i32_mul
-            push!(frame.value_stack, pop!(frame.value_stack)::Int32 * pop!(frame.value_stack)::Int32)
-        elseif inst isa i32_div_s
-            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
-            push!(frame.value_stack, div(a, b))
-        elseif inst isa i32_div_u
-            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
-            push!(frame.value_stack, reinterpret(Int32, div(reinterpret(UInt32, a), reinterpret(UInt32, b))))
-        elseif inst isa i32_rem_s
-            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
-            if b === zero(Int32)
-                push!(frame.value_stack, zero(Int32))
-            else
-                push!(frame.value_stack, rem(a, b))
-            end
-        elseif inst isa i32_rem_u
-            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
-            if b === zero(Int32)
-                push!(frame.value_stack, zero(Int32))
-            else
-                push!(frame.value_stack, reinterpret(Int32, rem(reinterpret(UInt32, a), reinterpret(UInt32, b))))
-            end
-        elseif inst isa i32_and
-            push!(frame.value_stack, pop!(frame.value_stack)::Int32 & pop!(frame.value_stack)::Int32)
-        elseif inst isa i32_or
-            push!(frame.value_stack, pop!(frame.value_stack)::Int32 | pop!(frame.value_stack)::Int32)
-        elseif inst isa i32_xor
-            push!(frame.value_stack, xor(pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32))
-        elseif inst isa i32_shl
-            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
-            push!(frame.value_stack, a << mod(b, Int32(32)))
-        elseif inst isa i32_shr_s
-            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
-            push!(frame.value_stack, a >> mod(b, Int32(32)))
-        elseif inst isa i32_shr_u
-            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
-            push!(frame.value_stack, a >>> mod(b, Int32(32)))
-        elseif inst isa i32_rotl
-            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
-            push!(frame.value_stack, bitrotate(a, mod(b, Int32(32))))
-        elseif inst isa i32_rotr
-            b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
-            push!(frame.value_stack, bitrotate(a, -mod(b, Int32(32))))
-        elseif inst isa i32_extend8_s
-            x = pop!(frame.value_stack)::Int32 % Int8
-            push!(frame.value_stack, Int32(x))
-        elseif inst isa i32_extend16_s
-            x = pop!(frame.value_stack)::Int32 % Int16
-            push!(frame.value_stack, Int32(x))
-        elseif inst isa i32_wrap_i64
-            x = pop!(frame.value_stack)::Int64
-            push!(frame.value_stack, x % Int32)
-        elseif inst isa f32_demote_f64
-            push!(frame.value_stack, Float32(pop!(frame.value_stack)::Float64))
-        elseif inst isa f64_promote_f32
-            push!(frame.value_stack, Float64(pop!(frame.value_stack)::Float32))
-        elseif inst isa i64_extend8_s
-            x = pop!(frame.value_stack)::Int64 % Int8
-            push!(frame.value_stack, Int64(x))
-        elseif inst isa i64_extend16_s
-            x = pop!(frame.value_stack)::Int64 % Int16
-            push!(frame.value_stack, Int64(x))
-        elseif inst isa i64_extend32_s
-            x = pop!(frame.value_stack)::Int64 % Int32
-            push!(frame.value_stack, Int64(x))
-        elseif inst isa i64_extend_i32_s
-            push!(frame.value_stack, Int64(pop!(frame.value_stack)::Int32))
-        elseif inst isa i64_extend_i32_u
-            push!(frame.value_stack, reinterpret(Int64, UInt64(reinterpret(UInt32, pop!(frame.value_stack)::Int32))))
-        elseif inst isa i64_add
-            push!(frame.value_stack, pop!(frame.value_stack)::Int64 + pop!(frame.value_stack)::Int64)
-        elseif inst isa i64_sub
-            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
-            push!(frame.value_stack, a - b)
-        elseif inst isa i64_mul
-            push!(frame.value_stack, pop!(frame.value_stack)::Int64 * pop!(frame.value_stack)::Int64)
-        elseif inst isa i64_div_s
-            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
-            push!(frame.value_stack, div(a, b))
-        elseif inst isa i64_div_u
-            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
-            push!(frame.value_stack, reinterpret(Int64, div(reinterpret(UInt64, a), reinterpret(UInt64, b))))
-        elseif inst isa i64_rem_s
-            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
-            push!(frame.value_stack, rem(a, b))
-        elseif inst isa i64_rem_u
-            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
-            push!(frame.value_stack, reinterpret(Int64, rem(reinterpret(UInt64, a), reinterpret(UInt64, b))))
-        elseif inst isa i64_eq
-            push!(frame.value_stack, Int32(pop!(frame.value_stack)::Int64 == pop!(frame.value_stack)::Int64))
-        elseif inst isa i64_and
-            push!(frame.value_stack, pop!(frame.value_stack)::Int64 & pop!(frame.value_stack)::Int64)
-        elseif inst isa i64_or
-            push!(frame.value_stack, pop!(frame.value_stack)::Int64 | pop!(frame.value_stack)::Int64)
-        elseif inst isa i64_xor
-            push!(frame.value_stack, xor(pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64))
-        elseif inst isa i64_shl
-            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
-            push!(frame.value_stack, a << mod(b, 64))
-        elseif inst isa i64_shr_s
-            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
-            push!(frame.value_stack, a >> mod(b, 64))
-        elseif inst isa i64_shr_u
-            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
-            push!(frame.value_stack, a >>> mod(b, 64))
-       elseif inst isa i32_popcnt
-            push!(frame.value_stack, Int32(Base.count_ones(pop!(frame.value_stack)::Int32)))
-        elseif inst isa i32_clz
-            push!(frame.value_stack, Int32(Base.leading_zeros(pop!(frame.value_stack)::Int32)))
-        elseif inst isa i32_ctz
-            push!(frame.value_stack, Int32(Base.trailing_zeros(pop!(frame.value_stack)::Int32)))
-        elseif inst isa i64_popcnt
-            push!(frame.value_stack, Int64(Base.count_ones(pop!(frame.value_stack)::Int64)))
-        elseif inst isa i64_clz
-            push!(frame.value_stack, Int64(Base.leading_zeros(pop!(frame.value_stack)::Int64)))
-        elseif inst isa i64_ctz
-            push!(frame.value_stack, Int64(Base.trailing_zeros(pop!(frame.value_stack)::Int64)))
-         elseif inst isa i64_rotl
-            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
-            push!(frame.value_stack, bitrotate(a, mod(b, 64)))
-        elseif inst isa i64_rotr
-            b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
-            push!(frame.value_stack, bitrotate(a, -mod(b, 64)))
-        elseif inst isa f32_convert_i32_u
-            push!(frame.value_stack, Float32(reinterpret(UInt32, pop!(frame.value_stack)::Int32)))
-        elseif inst isa f32_convert_i32_s
-            push!(frame.value_stack, Float32(pop!(frame.value_stack)::Int32))
-        elseif inst isa f32_convert_i64_u
-            push!(frame.value_stack, Float32(reinterpret(UInt64, pop!(frame.value_stack)::Int64)))
-        elseif inst isa f32_convert_i64_s
-            push!(frame.value_stack, Float32(pop!(frame.value_stack)::Int64))
-        elseif inst isa f64_convert_i32_s
-            push!(frame.value_stack, Float64(pop!(frame.value_stack)::Int32))
-        elseif inst isa f64_convert_i32_u
-            push!(frame.value_stack, Float64(reinterpret(UInt32, pop!(frame.value_stack)::Int32)))
-        elseif inst isa f64_convert_i64_s
-            push!(frame.value_stack, Float64(pop!(frame.value_stack)::Int64))
-        elseif inst isa f64_convert_i64_u
-            push!(frame.value_stack, Float64(reinterpret(UInt64, pop!(frame.value_stack)::Int64)))
-        elseif inst isa f32_neg
-            push!(frame.value_stack, -pop!(frame.value_stack)::Float32)
-        elseif inst isa f64_neg
-            push!(frame.value_stack, -pop!(frame.value_stack)::Float64)
-        elseif inst isa f32_add
-            push!(frame.value_stack, pop!(frame.value_stack)::Float32 + pop!(frame.value_stack)::Float32)
-        elseif inst isa f32_sub
-            b, a = pop!(frame.value_stack)::Float32, pop!(frame.value_stack)::Float32
-            push!(frame.value_stack, a - b)
-        elseif inst isa f32_mul
-            b, a = pop!(frame.value_stack)::Float32, pop!(frame.value_stack)::Float32
-            push!(frame.value_stack, a * b)
-        elseif inst isa f32_div
-            b, a = pop!(frame.value_stack)::Float32, pop!(frame.value_stack)::Float32
-            push!(frame.value_stack, a / b)
-        elseif inst isa f32_nearest
-            push!(frame.value_stack, round(pop!(frame.value_stack)::Float32))
-        elseif inst isa f32_eq
-            b, a = pop!(frame.value_stack)::Float32, pop!(frame.value_stack)::Float32
-            push!(frame.value_stack, Int32(a == b))
-        elseif inst isa f32_ne
-            b, a = pop!(frame.value_stack)::Float32, pop!(frame.value_stack)::Float32
-            push!(frame.value_stack, Int32(a != b))
-        elseif inst isa f32_lt
-            b, a = pop!(frame.value_stack)::Float32, pop!(frame.value_stack)::Float32
-            push!(frame.value_stack, Int32(a < b))
-        elseif inst isa f32_le
-            b, a = pop!(frame.value_stack)::Float32, pop!(frame.value_stack)::Float32
-            push!(frame.value_stack, Int32(a <= b))
-        elseif inst isa f32_gt
-            b, a = pop!(frame.value_stack)::Float32, pop!(frame.value_stack)::Float32
-            push!(frame.value_stack, Int32(a > b))
-        elseif inst isa f32_ge
-            b, a = pop!(frame.value_stack)::Float32, pop!(frame.value_stack)::Float32
-            push!(frame.value_stack, Int32(a >= b))
-        elseif inst isa f32_reinterpret_i32
-            x = pop!(frame.value_stack)::Int32
-            push!(frame.value_stack, reinterpret(Float32, x))
-        elseif inst isa f64_add
-            push!(frame.value_stack, pop!(frame.value_stack)::Float64 + pop!(frame.value_stack)::Float64)
-        elseif inst isa f64_sub
-            b, a = pop!(frame.value_stack)::Float64, pop!(frame.value_stack)::Float64
-            push!(frame.value_stack, a - b)
-        elseif inst isa f64_mul
-            b, a = pop!(frame.value_stack)::Float64, pop!(frame.value_stack)::Float64
-            push!(frame.value_stack, a * b)
-        elseif inst isa f64_div
-            b, a = pop!(frame.value_stack)::Float64, pop!(frame.value_stack)::Float64
-            push!(frame.value_stack, a / b)
-        elseif inst isa f64_nearest
-            push!(frame.value_stack, round(pop!(frame.value_stack)::Float64))
-        elseif inst isa f64_eq
-            b, a = pop!(frame.value_stack)::Float64, pop!(frame.value_stack)::Float64
-            push!(frame.value_stack, Int32(a == b))
-        elseif inst isa f64_ne
-            b, a = pop!(frame.value_stack)::Float64, pop!(frame.value_stack)::Float64
-            push!(frame.value_stack, Int32(a != b))
-        elseif inst isa f64_lt
-            b, a = pop!(frame.value_stack)::Float64, pop!(frame.value_stack)::Float64
-            push!(frame.value_stack, Int32(a < b))
-        elseif inst isa f64_le
-            b, a = pop!(frame.value_stack)::Float64, pop!(frame.value_stack)::Float64
-            push!(frame.value_stack, Int32(a <= b))
-        elseif inst isa f64_gt
-            b, a = pop!(frame.value_stack)::Float64, pop!(frame.value_stack)::Float64
-            push!(frame.value_stack, Int32(a > b))
-        elseif inst isa f64_ge
-            b, a = pop!(frame.value_stack)::Float64, pop!(frame.value_stack)::Float64
-            push!(frame.value_stack, Int32(a >= b))
-        elseif inst isa f64_reinterpret_i64
-            x = pop!(frame.value_stack)::Int64
-            push!(frame.value_stack, reinterpret(Float64, x))
-        elseif inst isa i64_trunc_f64_s
-            push!(frame.value_stack, Int64(floor(pop!(frame.value_stack)::Float64)))
         elseif inst isa i32_load
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
             check_inbounds(instance.mems[1], ptr)
@@ -695,25 +776,11 @@ function interpret(instance, frame, expr)
             fill!(view(buf, dest:dest+N-1), val)
         elseif inst isa If
             cond = pop!(frame.value_stack)::Int32
-
-            push_label_stack!(!iszero(cond) ? inst.trueinst : inst.falseinst)
-            #push!(pc_stack, pc)
-            #push!(expr_stack, expr)
-
-            #expr = !iszero(cond) ? inst.trueinst : inst.falseinst
-            # pc = 0
+            push_label_stack!(Runtime.i32_to_bool(cond) ? inst.trueinst : inst.falseinst)
         elseif inst isa Loop
             push_label_stack!(inst.inst)
-            # push!(pc_stack, pc)
-            # push!(expr_stack, expr)
-            # pc = 0
-            # expr = inst.inst
         elseif inst isa Block
             push_label_stack!(inst.inst)
-            # push!(pc_stack, pc)
-            # push!(expr_stack, expr)
-            # pc = 0
-            # expr = inst.inst
         elseif inst isa return_
             values = last(frame.value_stack, length(frame.fntype.results))
             empty!(frame.value_stack)
@@ -779,6 +846,15 @@ function invoke(instance, idx, args)
     end
 
     idx -= num_imports
+
+    n_calls = instance.call_stats[idx]
+    instance.call_stats[idx] = n_calls == typemax(UInt) ? n_calls : n_calls + 1
+
+    compiled_func = instance.compiled_funcs[idx]
+    if !isnothing(compiled_func)
+        return compiled_func(args...)
+    end
+
     func = instance.mod.funcs[idx]
 
     frame = CallFrame(

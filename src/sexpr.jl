@@ -8,7 +8,7 @@ takes(_, _, _, ::Union{i32_load, i64_load, f32_load, f64_load,
 takes(_, _, _, ::Union{ref_as_non_null}) = 1
 takes(
     mod, func, ctx, inst
-) = length(inst_func_type(FnValidator(mod, func, func.fntype, false, [], ctx), inst).params)
+) = length(inst_func_type(ValidatorContext(mod, func, func.fntype, false, [], ctx), inst).params)
 takes(_, _, ctx, b::br) = length(ctx[end-b.label].params)
 takes(_, _, ctx, b::br_if) = 1 + length(ctx[end-b.label].params)
 takes(wmod, _, _, ::array_new) = 2 # elty, length
@@ -31,7 +31,7 @@ takes(_, _, _, ::select) = 3
 
 produces(
     mod, func, ctx, inst
-) = length(inst_func_type(FnValidator(mod, func, func.fntype, false, [], ctx), inst).results)
+) = length(inst_func_type(ValidatorContext(mod, func, func.fntype, false, [], ctx), inst).results)
 produces(_, _, _, ::Union{unreachable,drop,nop,local_set,global_set,return_}) = 0
 produces(_, _, _, ::Union{i32_store,i64_store,f32_store,f64_store}) = 0
 produces(wmod, _, _, c::call) = length(get_function_type(wmod, c.func).results)
