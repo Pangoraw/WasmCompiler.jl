@@ -53,7 +53,7 @@ const testsuite_dir = joinpath(@__DIR__, "testsuite")
                 @test WC.Interpreter.invoke(
                     inst, func_idx, vargs
                 ) == exp skip = contains(name, "call_indirect") ||
-                                contains(name, "memory.grow") ||
+                                # contains(name, "memory.grow") ||
                                 contains(name, "extern")
             end
         end
