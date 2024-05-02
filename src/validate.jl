@@ -145,6 +145,13 @@ function validate_inst(val, inst)
                       i32_store, i64_store, f32_store, f64_store,
                       i32_store8, i32_store16, i64_store8, i64_store16, i64_store32,
                       memory_copy, memory_grow}
+        if (inst isa Union{i32_load8_s, i32_load8_u, i64_load8_u, i64_load8_s, i32_store8, i64_store8} && inst.memarg.align > 1) ||
+           (inst isa Union{i32_load16_s, i32_load16_u, i64_load16_u, i64_load16_s, i32_store16, i64_store16} && inst.memarg.align > 2) ||
+           (inst isa Union{f32_load, f32_store, i32_load, i32_store, i64_load32_u, i64_load32_s, i64_store32} && inst.memarg.align > 4) ||
+           (inst isa Union{f64_store, i64_store, i64_load, f64_load} && inst.memarg.align > 8)
+            throw(ValidationError("$(val.func.name): alignment must not be larger than natural"))
+        end
+
         if isempty(val.mod.mems) && !any(imp -> imp isa MemImport, val.mod.imports)
             inst_ = sprint(WC._printwasm, inst)
             throw(ValidationError("$(val.func.name): $inst_ requires a memory"))

@@ -50,7 +50,13 @@ function lex(io::IO)
             tok = if sym === :nan && peek(io, Char) == ':'
                 read(io, Char)
                 N = read_number(io)
-                reinterpret(Float64, N)
+                N = if N <= typemax(UInt32)
+                    reinterpret(Float32,
+                                reinterpret(UInt32, NaN32) | UInt32(N))
+                elseif N <= typemax(UInt64)
+                    reinterpret(Float64,
+                                reinterpret(UInt64, NaN64) | UInt64(N))
+                end
             else
                 sym
             end
@@ -98,7 +104,7 @@ end
 FuncContext(mod=nothing) = FuncContext(mod, Dict{Symbol,Int}(), Dict{Symbol,Int}(), Dict{Symbol,Int}(), Dict{Symbol,Int}(), Symbol[])
 
 symstart(c) = validchar(c) && c ∉ '0':'9' && c != '-'
-validchar(c) = c ∈ (('a':'z') ∪ ('A':'Z') ∪ ('0':'9')) || c == '_' || c == '.' || c == '$' || c == '-' || c == '!'
+validchar(c) = c ∈ (('a':'z') ∪ ('A':'Z') ∪ ('0':'9')) || c == '_' || c == '.' || c == '$' || c == '-' || c == '!' || c == '>'
 numberstart(c) = c ∈ '0':'9' || c == '-'
 
 function read_sym(io::IO)
@@ -112,28 +118,27 @@ function read_sym(io::IO)
 end
 
 function read_str(io::IO)
-    s = ""
-    @assert read(io, Char) == '"'
-    c = peek(io, Char)
-    while !eof(io) && c != '"'
-        read(io, Char)
+    vec = UInt8[]
+    @assert read(io, UInt8) == UInt8('"')
+    c = peek(io, UInt8)
+    while !eof(io) && c != UInt8('"')
+        read(io, UInt8)
 
-        if c == '\\'
+        if c == UInt8('\\')
             eof(io) && break
-            c = read(io,Char)
-            if c in '0':'f'
+            c = read(io,UInt8)
+            if c in UInt8('0'):UInt8('f')
                 eof(io) && break
-                c = Char(parse(UInt8, c * read(io, Char); base=16))
+                cs = string(Char(c), Char(read(io, UInt8)))
+                c = parse(UInt8, cs; base=16)
             end
-            s *= c
-        else
-            s *= c
         end
+        push!(vec, c)
 
-        c = peek(io, Char)
+        c = peek(io, UInt8)
     end
-    !eof(io) && read(io, Char)
-    s
+    !eof(io) && read(io, UInt8)
+    String(vec)
 end
 
 function read_number(io::IO)
@@ -697,9 +702,22 @@ function make_module!(mod, exprs)
             push!(mod.globals, Global(name, GlobalType(mut, type), inst))
             named_globals[Symbol('$', name)] = length(mod.globals)
         elseif head === :memory
-            min = popfirst!(args)
-            max = isempty(args) ? typemax(UInt32) : only(args)
+            if !isempty(args) && issexpr(first(args), :data)
+                min = 1
+                max = typemax(UInt32)
+                push!(mod.datas, Data(Vector{UInt8}(last(popfirst!(args))), DataModePassive()))
+            else
+                min = popfirst!(args)
+                max = isempty(args) ? typemax(UInt32) : only(args)
+            end
             push!(mod.mems, Mem(MemoryType(min, max)))
+        elseif head === :data
+            ctx = FuncContext(mod)
+            inst = Inst[]
+            make_inst!(inst, popfirst!(args), ctx)
+            mode = DataModeActive(0, inst)
+            data = Data(Vector{UInt8}(popfirst!(args)), mode)
+            push!(mod.datas, data)
         elseif head === :export
             push!(export_exprs, args)
         elseif head === :type

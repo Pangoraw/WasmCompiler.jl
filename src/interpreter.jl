@@ -135,6 +135,16 @@ function instantiate(module_, imports=(;))
         push!(globals, Global{T}(global_.type, init))
     end
 
+    for data in module_.datas
+        if data.mode isa WasmCompiler.DataModeActive
+            buf = inst.mems[data.mode.memory+1].buf
+            frame = CallFrame()
+            interpret(inst, frame, data.mode.offset)
+            offset = only(frame.value_stack)
+            buf[1+offset:offset+length(data.init)] .= data.init
+        end
+    end
+
     inst
 end
 
@@ -621,19 +631,19 @@ function interpret(instance, frame, expr)
         elseif inst isa i64_load16_s
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
             check_inbounds(instance.mems[1], ptr)
-            push!(frame.value_stack, Int64(reinterpret(Int16, instance.mems[1+ptr:sizeof(Int16)+ptr])[1]))
+            push!(frame.value_stack, Int64(reinterpret(Int16, instance.mems[1].buf[1+ptr:sizeof(Int16)+ptr])[1]))
         elseif inst isa i64_load16_u
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
             check_inbounds(instance.mems[1], ptr)
-            push!(frame.value_stack, Int64(reinterpret(UInt16, instance.mems[1+ptr:sizeof(UInt16)+ptr])[1]))
+            push!(frame.value_stack, Int64(reinterpret(UInt16, instance.mems[1].buf[1+ptr:sizeof(UInt16)+ptr])[1]))
         elseif inst isa i64_load32_s
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
             check_inbounds(instance.mems[1], ptr)
-            push!(frame.value_stack, Int64(reinterpret(Int32, instance.mems[1+ptr:sizeof(Int32)+ptr])[1]))
+            push!(frame.value_stack, Int64(reinterpret(Int32, instance.mems[1].buf[1+ptr:sizeof(Int32)+ptr])[1]))
         elseif inst isa i64_load32_u
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
             check_inbounds(instance.mems[1], ptr)
-            push!(frame.value_stack, Int64(reinterpret(UInt32, instance.mems[1+ptr:sizeof(UInt32)+ptr])[1]))
+            push!(frame.value_stack, Int64(reinterpret(UInt32, instance.mems[1].buf[1+ptr:sizeof(UInt32)+ptr])[1]))
         elseif inst isa i32_store
             val = pop!(frame.value_stack)::Int32
             ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
