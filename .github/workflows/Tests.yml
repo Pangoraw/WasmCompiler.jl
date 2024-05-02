@@ -11,6 +11,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+        with:
+          submodules: recursive
       - uses: julia-actions/setup-julia@v1
         with:
           version: "1.10"
