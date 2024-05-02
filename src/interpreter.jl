@@ -852,7 +852,7 @@ function invoke(instance, idx, args)
 
     compiled_func = instance.compiled_funcs[idx]
     if !isnothing(compiled_func)
-        return compiled_func(args...)
+        return compiled_func(instance, args...)
     end
 
     func = instance.mod.funcs[idx]
