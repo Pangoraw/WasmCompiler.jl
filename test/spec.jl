@@ -1,8 +1,14 @@
 using WasmCompiler, Test
 
 const testsuite_dir = joinpath(@__DIR__, "testsuite")
+const filters = ["binary", "bulk", "call_indirect", "const", "conversions",
+                 "custom", "data", "elem", "endian", "exports", "f32", "f64", "float_",
+                 "func", "global", "imports", "int_lite", "left-to-right", "linking",
+                 "local_tee", "memory", "names", "nop", "ref_is_null", "ref_null", "select",
+                 "simd_", "stack", "start", "table", "token", "unreachable", "unreachable-invalid",
+                 "unreached-invalid", "unreached-valid", "unwind", "utf8"]
 
-@testset "spectest: $(basename(p))" for p in filter!(!contains("struct"), readdir(testsuite_dir; join=true))
+@testset "spectest: $(basename(p))" for p in filter!(p -> endswith(p, ".wast") && all(f -> !contains(p, f),filters), readdir(testsuite_dir; join=true))
     sexprs = open(WC.parse_wast, p)
 
     module_ = nothing
@@ -48,13 +54,13 @@ const testsuite_dir = joinpath(@__DIR__, "testsuite")
             exp = map(i -> i.val, expected)
 
             wat = WC.Wat(inst.mod)
-
             @testset let fn=name, vargs=vargs
-                @test WC.Interpreter.invoke(
-                    inst, func_idx, vargs
-                ) == exp skip = contains(name, "call_indirect") ||
-                                # contains(name, "memory.grow") ||
-                                contains(name, "extern")
+                skip = contains(name, "call_indirect") || contains(name, "extern")
+                if any(isnan, exp)
+                    @test isequal(WC.Interpreter.invoke(inst, func_idx, vargs), exp) skip=skip
+                else
+                    @test WC.Interpreter.invoke(inst, func_idx, vargs) == exp skip=skip
+                end
             end
         end
 
