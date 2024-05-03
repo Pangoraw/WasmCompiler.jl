@@ -3,7 +3,7 @@ module Interpreter
 include("./runtime.jl")
 
 using ..WasmCompiler
-using ..WasmCompiler: GlobalType, Module, MemoryType, ValType, FuncType, Lanes, MathOperators
+using ..WasmCompiler: GlobalType, Module, MemoryType, ValType, FuncType, StructType, Lanes, MathOperators
 using ..WasmCompiler:
     i32_const, f32_const, f64_const, f32_lt, local_get, local_set, local_tee,
     i32_eq, i32_ne, i32_lt_s, i32_lt_u, i32_le_s, i32_le_u, i32_gt_s, i32_gt_u, i32_ge_s, i32_ge_u,
@@ -47,6 +47,7 @@ using ..WasmCompiler:
     v128_const, v128bin,
     global_set, global_get,
     select, br, br_if, br_table, nop, unreachable, return_, drop,
+    struct_new, struct_get,
     i32, i64, f32, f64, v128
 
 const PAGE_SIZE = 65536
@@ -78,6 +79,7 @@ struct Instance
     imported_funcs::Vector{Any}
     mems::Vector{Memory}
     globals::Vector{Global}
+    struct_types::Dict{Int,DataType}
 
     # Number of calls
     call_stats::Vector{UInt}
@@ -124,8 +126,16 @@ function instantiate(module_, imports=(;))
     num_funcs = length(module_.funcs)
     globals = Global[]
     inst = Instance(module_, imported_funcs, mems,
-                              globals, zeros(UInt, num_funcs),
-                              fill(nothing, (num_funcs,)))
+                    globals, Dict{Int,DataType}(),
+                    zeros(UInt, num_funcs),
+                    fill(nothing, (num_funcs,)))
+
+    for (i, ty) in enumerate(module_.types)
+        if ty isa StructType
+            params = map(f -> jltype(f.type), ty.fields)
+            inst.struct_types[i] = Tuple{params...}
+        end
+    end
 
     for global_ in module_.globals
         T = jltype(global_.type.type)
@@ -784,6 +794,15 @@ function interpret(instance, frame, expr)
             # TODO: inbounds?
             buf = instance.mems[1].buf
             fill!(view(buf, dest:dest+N-1), val)
+        elseif inst isa struct_new
+            T = instance.struct_types[inst.typeidx]
+            val = T(last(frame.value_stack, fieldcount(T)))
+            for _ in 1:fieldcount(T) pop!(frame.value_stack) end
+            push!(frame.value_stack, val)
+        elseif inst isa struct_get
+            T = instance.struct_types[inst.typeidx]
+            v = pop!(frame.value_stack)::T
+            push!(frame.value_stack, getfield(v, Int(inst.fieldidx)))
         elseif inst isa If
             cond = pop!(frame.value_stack)::Int32
             push_label_stack!(Runtime.i32_to_bool(cond) ? inst.trueinst : inst.falseinst)

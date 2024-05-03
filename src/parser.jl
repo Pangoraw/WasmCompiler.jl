@@ -385,6 +385,9 @@ function make_inst_linear!(inst, args, ctx)
         elseif head === :call
             func = _resolve_func(ctx, popfirst!(args))
             push!(inst, call(func))
+        elseif head === :struct_new
+            strty = _resolve_type(ctx, popfirst!(args))
+            push!(inst, struct_new(strty))
         elseif head === :br_if || head === :br
             dest = _resolve_label(ctx, popfirst!(args))
             push!(inst, getproperty(WC, head)(_resolve_label(ctx, dest)))
@@ -570,6 +573,15 @@ function make_inst!(inst, ex, ctx)
         func = _resolve_func(ctx, popfirst!(args))
         make_inst!(inst, args, ctx)
         push!(inst, call(func))
+    elseif head === :struct_new
+        strty = _resolve_type(ctx, popfirst!(args))
+        make_inst!(inst, args, ctx)
+        push!(inst, struct_new(strty))
+    elseif head === :struct_get
+        strty = _resolve_type(ctx, popfirst!(args))
+        fieldidx = popfirst!(args)
+        make_inst!(inst, args, ctx)
+        push!(inst, struct_get(strty, fieldidx + 1))
     elseif head === :br_if || head === :br
         dest = _resolve_label(ctx, popfirst!(args))
         make_inst!(inst, args, ctx)
@@ -730,7 +742,7 @@ function make_module!(mod, exprs)
                 rest = only(args)
                 popfirst!(rest)
                 t = parse_functype!(rest, FuncContext(mod))
-            elseif length(args) >= 1 && issexpr(first(args), :struct)
+            elseif length(args) >= 1 && (issexpr(first(args), :struct) || issexpr(first(args), :sub))
                 rest = only(args)
                 t = parse_struct_type!(rest, FuncContext(mod))
             else

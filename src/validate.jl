@@ -418,6 +418,12 @@ end
 
 inst_func_type(_, ::memory_grow) = FuncType([i32], [i32])
 
+inst_func_type(val, sn::struct_new) =
+    FuncType(
+        map(f -> f.type, val.mod.types[sn.typeidx].fields),
+        [StructRef(false, sn.typeidx)])
+inst_func_type(val, sg::struct_get) = FuncType([StructRef(false, sg.typeidx)], [val.mod.types[sg.typeidx].fields[sg.fieldidx].type])
+
 inst_func_type(_, b::Block) = copy(b.fntype)
 inst_func_type(_, b::Loop) = copy(b.fntype)
 inst_func_type(_, b::If) = FuncType([b.fntype.params..., i32], copy(b.fntype.results))
