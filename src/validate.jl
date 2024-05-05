@@ -173,13 +173,19 @@ function validate_inst(val, inst)
     # println(" ", val.stack)
 
     if length(val.stack) < length(fntype.params)
-        throw(ValidationError("$(val.func.name): type mismatch: expected $(fntype.params) but got $(val.stack) on the stack for $inst"))
+        inst_pretty = sprint(_printwasm, inst; context=:indent => 0)
+        params_pretty = "[" * join(map(string, fntype.params), ", ") * "]"
+        stack_pretty = "[" * join(map(string, val.stack), ", ") * "]"
+        throw(ValidationError("$(val.func.name): type mismatch: expected $params_pretty but got $stack_pretty on the stack for `$inst_pretty`."))
     end
 
     stack_values = reverse(ValType[pop!(val.stack) for _ in fntype.params])
 
     if stack_values != fntype.params
-        throw(ValidationError("$(val.func.name): type mismatch: expected $(fntype.params) but got $stack_values on the stack for $inst"))
+        inst_pretty = sprint(_printwasm, inst; context=:indent => 0)
+        params_pretty = "[" * join(map(string, fntype.params), ", ") * "]"
+        stack_pretty = "[" * join(map(string, stack_values), ", ") * "]"
+        throw(ValidationError("$(val.func.name): type mismatch: expected $params_pretty but got $stack_pretty on the stack for `$inst_pretty`."))
     end
 
     if inst isa global_set && !global_type(val.mod, inst.n).mut
@@ -417,6 +423,7 @@ function inst_func_type(val, c::call_indirect)
 end
 
 inst_func_type(_, ::memory_grow) = FuncType([i32], [i32])
+inst_func_type(_, ::memory_copy) = FuncType([i32,i32,i32], [])
 
 inst_func_type(val, sn::struct_new) =
     FuncType(

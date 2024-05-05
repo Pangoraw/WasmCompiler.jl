@@ -44,7 +44,7 @@ using ..WasmCompiler:
     f64_convert_i32_u, f64_convert_i64_u,
     call,
     memory_grow, memory_copy, memory_fill,
-    v128_const, v128bin,
+    v128_const, v128bin, v128_store, v128_load,
     global_set, global_get,
     select, br, br_if, br_table, nop, unreachable, return_, drop,
     struct_new, struct_get,
@@ -726,6 +726,15 @@ function interpret(instance, frame, expr)
             append!(frame.value_stack, results)
         elseif inst isa v128_const
             push!(frame.value_stack, inst.val)
+        elseif inst isa v128_load
+            ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            buf = instance.mems[1].buf
+            push!(frame.value_stack, Tuple(buf[1+ptr:ptr+16]...))
+        elseif inst isa v128_store
+            val = pop!(frame.value_stack)::NTuple{16,UInt8}
+            ptr = pop!(frame.value_stack)::Int32 + inst.memarg.offset
+            buf = instance.mems[1].buf
+            buf[1+ptr:ptr+16] .= val
         elseif inst isa v128bin
             b = pop!(frame.value_stack)::NTuple{16,UInt8}
             a = pop!(frame.value_stack)::NTuple{16,UInt8}
@@ -787,7 +796,7 @@ function interpret(instance, frame, expr)
             N, src, dest = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
             buf = instance.mems[1].buf
             # TODO: inbounds?
-            copyto!(buf, dest, buf, src, N)
+            copyto!(buf, 1+dest, buf, 1+src, N)
         elseif inst isa memory_fill
             N, val, dest = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
             0 <= val < 256 || error("invalid val")
@@ -855,8 +864,16 @@ elseif valtype == f32
     Float32
 elseif valtype == f64
     Float64
+elseif valtype == v128
+    NTuple{16,UInt8}
 else
     error("invalid valtype $valtype")
+end
+
+wzero(@nospecialize(T)) = if T <: Tuple
+    ntuple(_ -> zero(UInt8), 16)
+else
+    zero(T)
 end
 
 function invoke(instance, idx, args)
@@ -886,13 +903,19 @@ function invoke(instance, idx, args)
 
     func = instance.mod.funcs[idx]
 
+    if length(args) < length(func.fntype.params)
+        error("invalid number of argument got $(length(args)), expected $(length(func.fntype.params))") 
+    end
+
     frame = CallFrame(
         func.fntype,
-        Any[zero(jltype(v)) for v in func.locals],
+        Any[wzero(jltype(v)) for v in func.locals],
         Any[],
     )
     for (i, (T,arg)) in enumerate(zip(func.fntype.params, args))
-        @assert arg isa jltype(T) "invalid argument #$i of type $(typeof(arg)), wanted $(T)"
+        if !(arg isa jltype(T))
+            error("invalid argument #$i of type $(typeof(arg)), wanted $(T)")
+        end
         frame.locals[i] = arg
     end
 
