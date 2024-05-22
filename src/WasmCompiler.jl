@@ -120,6 +120,16 @@ macro code_wasm(exprs...)
     end
 end
 
+"""
+    wat"(module)"
+
+Parses the web assembly text content and returns a parsed module.
+
+```julia-repl
+julia> wat"(module)" |> WasmCompiler.wast
+"(module)"
+```
+"""
 macro wat_str(s)
     quote
         WC.parse_wast(IOBuffer($s))[1]::Module

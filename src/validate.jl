@@ -425,6 +425,8 @@ end
 inst_func_type(_, ::memory_grow) = FuncType([i32], [i32])
 inst_func_type(_, ::memory_copy) = FuncType([i32,i32,i32], [])
 
+inst_func_type(_, ::string_const) = FuncType([], [StringRef(false)])
+
 inst_func_type(val, sn::struct_new) =
     FuncType(
         map(f -> f.type, val.mod.types[sn.typeidx].fields),

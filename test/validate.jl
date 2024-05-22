@@ -2,8 +2,8 @@ using WasmCompiler: i32, local_get, f32_add, i32_add, drop, unreachable
 
 @testset "validation" begin
     f = WC.Func("f",
-        WC.FuncType([i32,i32], [i32]),
-        [i32,i32],
+        WC.FuncType([i32, i32], [i32]),
+        [i32, i32],
         WC.Inst[
             local_get(1),
             local_get(2),
@@ -12,7 +12,7 @@ using WasmCompiler: i32, local_get, f32_add, i32_add, drop, unreachable
     )
     mod = WC.Module(f)
 
-    @test_throws "f32_add" WC.validate(mod)
+    @test_throws "type mismatch" WC.validate(mod)
 
     empty!(f.inst)
     append!(f.inst, WC.Inst[
