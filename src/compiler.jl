@@ -1301,7 +1301,7 @@ function emit_codes(ctx, ir, rt, nargs)
                     push!(
                         exprs[bidx],
                         struct_new(structidx), # $jl-XXX
-                        ref_cast(1), # $jl-value-t
+                        ref_cast(StructRef(false, 1), false), # $jl-value-t
                         local_set(getlocal!(ssa)),
                     )
                 end

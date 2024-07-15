@@ -433,6 +433,8 @@ inst_func_type(val, sn::struct_new) =
         [StructRef(false, sn.typeidx)])
 inst_func_type(val, sg::struct_get) = FuncType([StructRef(false, sg.typeidx)], [val.mod.types[sg.typeidx].fields[sg.fieldidx].type])
 
+inst_func_type(_, rc::ref_cast) = FuncType([], [rc.ref])
+
 inst_func_type(_, b::Block) = copy(b.fntype)
 inst_func_type(_, b::Loop) = copy(b.fntype)
 inst_func_type(_, b::If) = FuncType([b.fntype.params..., i32], copy(b.fntype.results))
