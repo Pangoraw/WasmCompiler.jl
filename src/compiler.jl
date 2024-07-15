@@ -566,7 +566,7 @@ function emit_codes(ctx, ir, rt, nargs)
                     end
                     push!(exprs[bidx], local_set(getlocal!(ssa)))
                     continue
-                elseif f === Base.sitofp
+                elseif f === Base.sitofp || f === Base.uitofp
                     typ = resolve_arg(inst, 2)
                     arg = inst.args[3]
                     emit_val!(exprs[bidx], arg)
