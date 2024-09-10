@@ -1355,6 +1355,22 @@ function emit_func!(ctx, types)
     end
     ir, rt = ircodes |> only
 
+    t = types.parameters[1]
+    name = isdefined(t, :instance) ? nameof(t.instance) |> string : sprint(show, t)
+    name = replace(name, "#" => "_")
+    if startswith(name, "_")
+        name = "jl" * name
+    end
+    c = 1
+    while !isnothing(findfirst(f -> f.name == name, ctx.mod.funcs))
+        if c != 1
+            suff = "_$c"
+            name = name[begin:end-length(suff)]
+        end
+        c += 1
+        name *= "_$c"
+    end
+
     if ir isa Method
         c = sprint(Base.show_tuple_as_call, ir.name, types)
         throw("unhandled call to builtin $(c)")
@@ -1389,21 +1405,6 @@ function emit_func!(ctx, types)
          i32],
     )
 
-    t = types.parameters[1]
-    name = isdefined(t, :instance) ? nameof(t.instance) |> string : sprint(show, t)
-    name = replace(name, "#" => "_")
-    if startswith(name, "_")
-        name = "jl" * name
-    end
-    c = 1
-    while !isnothing(findfirst(f -> f.name == name, ctx.mod.funcs))
-        if c != 1
-            suff = "_$c"
-            name = name[begin:end-length(suff)]
-        end
-        c += 1
-        name *= "_$c"
-    end
     f = Func(
         name,
         functype,

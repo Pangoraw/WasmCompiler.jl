@@ -14,6 +14,7 @@ include("./optimize.jl")
 include("./validate.jl")
 include("./parser.jl")
 include("./interpreter.jl")
+include("./builder.jl")
 
 struct Wat
     obj::Any

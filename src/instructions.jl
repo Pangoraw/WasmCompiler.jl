@@ -197,7 +197,7 @@ for (WT, T) in zip((f32, f64), (Float32, Float64))
         memarg::MemArg
     end
     @eval $store_s() = $store_s(MemArg())
-    @eval inst_func_type(_, ::$(store_s)) = FuncType([i32,$WT], [])
+    @eval inst_func_type(_, ::$(store_s)) = FuncType([i32, $WT], [])
 
     for f in ("abs", "neg", "sqrt", "ceil", "floor", "trunc", "nearest")
         inst = Symbol(WT, "_", f)
@@ -235,7 +235,7 @@ for (WT, T) in zip((i32, i64), (Int32, Int64))
         memarg::MemArg
     end
     @eval $store_s() = $store_s(MemArg())
-    @eval inst_func_type(_, ::$(store_s)) = FuncType([i32,$WT], [])
+    @eval inst_func_type(_, ::$(store_s)) = FuncType([i32, $WT], [])
 
     for f in ("clz", "ctz", "popcnt", "eqz")
         inst = Symbol(WT, "_", f)
@@ -387,23 +387,23 @@ v128_load() = v128_load(MemArg())
 enum_values(E) = E.(Int(typemin(E)):Int(typemax(E)))
 
 module CmpOperators
-    @enum CmpOperator eq ne lt gt le ge
-    needs_sign(op) = op > ne
+@enum CmpOperator eq ne lt gt le ge
+needs_sign(op) = op > ne
 end
 using .CmpOperators: CmpOperator
 
 module MathOperators
-    @enum MathOperator add sub mul div
+@enum MathOperator add sub mul div
 end
 using .MathOperators: MathOperator
 
 module Lanes
-    @enum Lane i8 i16 i32 i64 f32 f64
-    is_integer(lane::Lane) = lane <= i64
-    count(lane) =
-        is_integer(lane) ?
-            128 ÷ (2 ^ (3 + Int(lane))) :
-            lane == f32 ? 4 : 2
+@enum Lane i8 i16 i32 i64 f32 f64
+is_integer(lane::Lane) = lane <= i64
+count(lane) =
+    is_integer(lane) ?
+    128 ÷ (2^(3 + Int(lane))) :
+    lane == f32 ? 4 : 2
 end
 using .Lanes: Lane
 
@@ -439,9 +439,9 @@ struct v128bin <: BinaryInst
 end
 
 for (op, lane) in Iterators.product(enum_values(MathOperator),
-                                    enum_values(Lane))
+    enum_values(Lane))
     name = Symbol(lane, "x", Lanes.count(lane), "_", op)
-    @eval $name() = v128bin($lane,  $op)
+    @eval $name() = v128bin($lane, $op)
 end
 
 struct v128all_true <: UnaryInst
