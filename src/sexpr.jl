@@ -49,6 +49,7 @@ struct InstOperands
     operands::Vector{InstOperands}
     blocks::Vector{Vector{InstOperands}} # for if, blocks, loops...
 end
+InstOperands(inst, operands) = InstOperands(inst, operands, Vector{Vector{InstOperands}}())
 
 sexpr(wmod, func, expr=func.inst, ctx=FuncType[]) = sexpr!(wmod, func, copy(expr), ctx)
 function sexpr!(wmod, func, expr::Vector{Inst}, ctx)

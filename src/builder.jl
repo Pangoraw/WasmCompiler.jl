@@ -9,7 +9,7 @@ resolve(mod, ::Type{WasmCompiler.call}, arg::QuoteNode) = begin
         findfirst(f -> f.name == name, mod.funcs)
 end
 
-function fromexpr!(mod, inst, ex)
+function fromexpr(mod, ex)
     if Meta.isexpr(ex, :call)
         Inst = getproperty(WasmCompiler, ex.args[1])
         @assert Inst <: WasmCompiler.Inst
@@ -21,11 +21,12 @@ function fromexpr!(mod, inst, ex)
             push!(args, arg)
         end
 
+        operands = WasmCompiler.InstOperands[]
         for arg in ex.args[2 + fieldcount(Inst):end]
-            fromexpr!(mod, inst, arg)
+            push!(operands, fromexpr(mod, arg))
         end
 
-        push!(inst, Inst(args...))
+        return WasmCompiler.InstOperands(Inst(args...), operands, [])
     end
 end
 
