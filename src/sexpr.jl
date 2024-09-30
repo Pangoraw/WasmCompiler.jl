@@ -1,10 +1,10 @@
 takes(_, _, _, ::Union{i32_const,i64_const,f32_const,f64_const,local_get,global_get,unreachable,string_const,nop,ref_null}) = 0
 takes(_, _, _, ::Union{local_set,local_tee,global_set,drop,ref_cast,struct_get,ref_test}) = 1
 takes(_, _, _, ::Union{i32_store,i64_store,f32_store,f64_store,v128_store,struct_set,array_get}) = 2
-takes(_, _, _, ::Union{i32_load, i64_load, f32_load, f64_load,
-                       i32_load8_s, i32_load8_u, i32_load16_s, i32_load16_u,
-                       i64_load8_s, i64_load8_u, i64_load16_s, i64_load16_u,
-                       i64_load32_s, i64_load32_u,v128_load}) = 1
+takes(_, _, _, ::Union{i32_load,i64_load,f32_load,f64_load,
+    i32_load8_s,i32_load8_u,i32_load16_s,i32_load16_u,
+    i64_load8_s,i64_load8_u,i64_load16_s,i64_load16_u,
+    i64_load32_s,i64_load32_u,v128_load}) = 1
 takes(_, _, _, ::Union{ref_as_non_null}) = 1
 takes(
     mod, func, ctx, inst
@@ -92,7 +92,7 @@ function sexpr!(wmod, func, expr::Vector{Inst}, ctx)
         elseif inst isa If
             push!(ctx, inst.fntype)
             inst, blocks = (
-                If(copy(inst.fntype), Inst[], Inst[]), 
+                If(copy(inst.fntype), Inst[], Inst[]),
                 Vector{InstOperands}[sexpr(wmod, func, inst.trueinst, ctx), sexpr(wmod, func, inst.falseinst, ctx)],
             )
             pop!(ctx)
@@ -128,17 +128,18 @@ flatten(ops::Vector{InstOperands}; init=Inst[]) = foldl(emit!, ops; init)
 
 # --- Analysis
 
-zero_inst(valtype) = if valtype == i32
-    i32_const(0)
-elseif valtype == i64
-    i64_const(0)
-elseif valtype == f32
-    f32_const(0f0)
-elseif valtype == f64
-    f64_const(0.)
-else
-    error("valtype")
-end
+zero_inst(valtype) =
+    if valtype == i32
+        i32_const(0)
+    elseif valtype == i64
+        i64_const(0)
+    elseif valtype == f32
+        f32_const(0.0f0)
+    elseif valtype == f64
+        f64_const(0.0)
+    else
+        error("valtype")
+    end
 
 mutable struct OpDeps
     calls::BitSet
@@ -151,13 +152,19 @@ OpDeps() = OpDeps(BitSet(), BitSet(), BitSet(), false)
 function analyse(op, deps=OpDeps())
     op.inst isa Union{local_get,local_tee} && push!(deps.locals, op.inst.n)
     op.inst isa global_get && push!(deps.globals, op.inst.n)
-    deps.effectful |= op.inst isa Union{global_set,local_set,call}
+    deps.effectful |= op.inst isa Union{global_set,local_set,call,MemoryOp}
     foreach(Base.Fix2(analyse, deps), op.operands)
     deps
 end
 
 function inline_ssa_values!(wmod, func)
-    ops = sexpr(wmod, func)
+    ops = try
+        sexpr(wmod, func)
+    catch
+        return func
+    end
+
+    ConstantPropagation.const_prop!(ops)
 
     nparams = length(func.fntype.params)
     local_values = [InstOperands(i <= nparams ? unreachable() : zero_inst(loc), [], [])
@@ -180,7 +187,6 @@ function inline_ssa_values!(wmod, func)
         loc > nparams && local_reads[loc] == 1
     end
 
-    locals = 1:length(func.locals)
     live = falses(length(func.locals))
     moved = falses(length(func.locals))
     deps = Dict(
@@ -222,7 +228,7 @@ function inline_ssa_values!(wmod, func)
     map!(explore2, ops, ops)
 
     nmoved = count(moved)
-    nmoved > 0 && @debug "moved $(nmoved) locals" name=func.name
+    nmoved > 0 && @debug "moved $(nmoved) locals" name = func.name
 
     function explore3(op)
         if op.inst isa local_set || op.inst isa local_get
