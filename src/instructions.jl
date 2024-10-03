@@ -583,6 +583,9 @@ end
 struct array_new <: Inst
     typeidx::Index
 end
+struct array_new_default <: Inst
+    typeidx::Index
+end
 struct array_new_fixed <: Inst
     typeidx::Index
     length::UInt32

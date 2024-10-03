@@ -544,9 +544,15 @@ function _printwasm(io::IO, sg::struct_get)
     end
 end
 
+function _printwasm(io::IO, ag::array_get)
+    _printinst(io, "array_get")
+    print(io, ' ', ag.typeidx - 1)
+end
+
 function _printwasm(io::IO, inst::Inst)
     prefixes = ("i32", "i64", "f32", "f64",
-                "v128", "ref", "struct", "string")
+                "v128", "ref", "struct", "string",
+                "array")
 
     name = string(nameof(typeof(inst)))
     prefidx = findfirst(t -> startswith(name, string(t) * '_'), prefixes)
