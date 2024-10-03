@@ -153,7 +153,7 @@ function validate_inst(val, inst)
         end
 
         if isempty(val.mod.mems) && !any(imp -> imp isa MemImport, val.mod.imports)
-            inst_ = sprint(WC._printwasm, inst)
+            inst_ = sprint(WAT._printwasm, inst)
             throw(ValidationError("$(val.func.name): $inst_ requires a memory"))
         end
 
@@ -165,11 +165,11 @@ function validate_inst(val, inst)
     end
 
     fntype = inst_func_type(val, inst)
-    # @info WC.Wat(inst) fntype val.stack
+    # @info WAT.Wat(inst) fntype val.stack
 
-    # WC._printwasm(stdout, inst)
+    # WAT._printwasm(stdout, inst)
     # print(" ")
-    # WC._printwasm(stdout, fntype)
+    # WAT._printwasm(stdout, fntype)
     # println(" ", val.stack)
 
     if length(val.stack) < length(fntype.params)

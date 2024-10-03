@@ -10,7 +10,7 @@ end
     wat = @code_wasm mod=true pow(Int32(2), Int32(3))
     wmod = wat.obj
 
-    wasm = WC.wasm(wmod) |> Wasmtime.WasmByteVec
+    wasm = WAT.wasm(wmod) |> Wasmtime.WasmByteVec
 
     engine = WasmEngine()
     store = WasmtimeStore(engine)
@@ -19,11 +19,11 @@ end
 
     wpow = Wasmtime.exports(instance).pow
 
-    inst = WC.Interpreter.instantiate(wmod)
+    inst = WAT.Interpreter.instantiate(wmod)
 
     for p in [(3, 4), (0, 1), (1, 0), (2, 8)]
         x, n = Int32.(p)
-        interp_result = WC.Interpreter.exports(inst).pow(x, n) |> only
+        interp_result = WAT.Interpreter.exports(inst).pow(x, n) |> only
         expected_result = pow(x, n)
         @test convert(Int32, only(wpow(x, n))) == expected_result
         @test interp_result == expected_result
@@ -34,9 +34,9 @@ end
     mod_opt = (@code_wasm mod=true optimize=true pow(Int32(1), Int32(1))).obj
     mod_unopt = (@code_wasm mod=true optimize=false pow(Int32(1), Int32(1))).obj
 
-    size_opt = length(WC.wasm(mod_opt; names=false, producers=false))
-    size_unopt = length(WC.wasm(mod_unopt))
-    size_opt2 = length(WC.wasm(WC.optimize(mod_unopt); names=false, producers=false))
+    size_opt = length(WAT.wasm(mod_opt; names=false, producers=false))
+    size_unopt = length(WAT.wasm(mod_unopt))
+    size_opt2 = length(WAT.wasm(WAT.optimize(mod_unopt); names=false, producers=false))
 
     ratio = (size_unopt - size_opt) / size_opt
     ratio2 = (size_unopt - size_opt2) / size_opt2

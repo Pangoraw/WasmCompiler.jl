@@ -8,7 +8,7 @@ end
 
 @testset "trycatch" begin
     (; obj) = @code_wasm optimize=:binaryen mod=:runtime f_try_catch(-1f0)
-    w = WC.wasm(obj)
+    w = WAT.wasm(obj)
 
     p = launch()
     instantiate!(p, w)

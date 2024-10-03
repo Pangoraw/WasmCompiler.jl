@@ -1,40 +1,40 @@
-using WasmCompiler: i32, local_get, f32_add, i32_add, drop, unreachable
+using WebAssemblyToolkit: i32, local_get, f32_add, i32_add, drop, unreachable
 
 @testset "validation" begin
-    f = WC.Func("f",
-        WC.FuncType([i32, i32], [i32]),
+    f = WAT.Func("f",
+        WAT.FuncType([i32, i32], [i32]),
         [i32, i32],
-        WC.Inst[
+        WAT.Inst[
             local_get(1),
             local_get(2),
             f32_add(),
         ]
     )
-    mod = WC.Module(f)
+    mod = WAT.Module(f)
 
-    @test_throws "type mismatch" WC.validate(mod)
+    @test_throws "type mismatch" WAT.validate(mod)
 
     empty!(f.inst)
-    append!(f.inst, WC.Inst[
+    append!(f.inst, WAT.Inst[
         local_get(1),
         local_get(2),
         i32_add(),
         drop(),
     ])
 
-    @test_throws "i32" WC.validate(mod)
+    @test_throws "i32" WAT.validate(mod)
 
     empty!(f.inst)
-    append!(f.inst, WC.Inst[
+    append!(f.inst, WAT.Inst[
         drop(),
     ])
 
-    @test_throws "drop" WC.validate(mod)
+    @test_throws "drop" WAT.validate(mod)
 
     empty!(f.inst)
-    append!(f.inst, WC.Inst[
+    append!(f.inst, WAT.Inst[
         unreachable(),
     ])
 
-    @test (WC.validate(mod); true)
+    @test (WAT.validate(mod); true)
 end

@@ -435,7 +435,7 @@ function remove_unused_functions!(wmod; remove_imports=true)
     edges = Pair{Int,Int}[]
     for (i, f) in enumerate(wmod.funcs)
         foreach(f) do inst
-            if inst isa WC.call
+            if inst isa WAT.call
                 push!(edges, num_imports + i => inst.func)
             end
         end

@@ -1,4 +1,4 @@
-using WasmCompiler, Test
+using WebAssemblyToolkit, Test
 
 const testsuite_dir = joinpath(@__DIR__, "testsuite")
 const filters = ["binary", "bulk", "call_indirect", "const", "conversions",
@@ -9,22 +9,22 @@ const filters = ["binary", "bulk", "call_indirect", "const", "conversions",
                  "unreached-invalid", "unreached-valid", "unwind", "utf8"]
 
 @testset "spectest: $(basename(p))" for p in filter!(p -> endswith(p, ".wast") && all(f -> !contains(p, f),filters), readdir(testsuite_dir; join=true))
-    sexprs = open(WC.parse_wast, p)
+    sexprs = open(WAT.parse_wast, p)
 
     module_ = nothing
     inst = nothing
 
     for ex in sexprs
-        if ex isa WC.Module
+        if ex isa WAT.Module
             module_ = ex
 
             @test begin
-                WC.validate(module_)
+                WAT.validate(module_)
                 true
             end
 
             @test begin
-                inst = WC.Interpreter.instantiate(module_)
+                inst = WAT.Interpreter.instantiate(module_)
                 true
             end
             continue
@@ -33,11 +33,11 @@ const filters = ["binary", "bulk", "call_indirect", "const", "conversions",
         head, args... = ex
         if head === :assert_invalid
             mod, msg = args
-            wat = WC.Wat(mod)
+            wat = WAT.Wat(mod)
 
             @testset let wat = wat
-                @test try WC.validate(mod); false catch e; true end
-                @test_throws msg WC.validate(mod)
+                @test try WAT.validate(mod); false catch e; true end
+                @test_throws msg WAT.validate(mod)
             end
         elseif head === :assert_return
             module_ === nothing && continue
@@ -53,13 +53,13 @@ const filters = ["binary", "bulk", "call_indirect", "const", "conversions",
             vargs = map(i -> i.val, fargs)
             exp = map(i -> i.val, expected)
 
-            wat = WC.Wat(inst.mod)
+            wat = WAT.Wat(inst.mod)
             @testset let fn=name, vargs=vargs
                 skip = contains(name, "call_indirect") || contains(name, "extern")
                 if any(isnan, exp)
-                    @test isequal(WC.Interpreter.invoke(inst, func_idx, vargs), exp) skip=skip
+                    @test isequal(WAT.Interpreter.invoke(inst, func_idx, vargs), exp) skip=skip
                 else
-                    @test WC.Interpreter.invoke(inst, func_idx, vargs) == exp skip=skip
+                    @test WAT.Interpreter.invoke(inst, func_idx, vargs) == exp skip=skip
                 end
             end
         end

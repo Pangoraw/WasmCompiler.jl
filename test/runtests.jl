@@ -1,5 +1,5 @@
-import WasmCompiler as WC
-using WasmCompiler:
+import WebAssemblyToolkit as WAT
+using WebAssemblyToolkit:
     Func, i32, i64, FuncType, Inst, local_set,
     local_get, i32_const, i64_const, drop,
     br, Block, If, nop,
@@ -22,10 +22,10 @@ include("spec.jl")
         a + b
     end
 
-    f = WC.emit_func(add, Tuple{Int32,Int32})
-    mod = WC.Module(f)
+    f = WAT.emit_func(add, Tuple{Int32,Int32})
+    mod = WAT.Module(f)
 
-    wasm = WC.wasm(mod) |> Wasmtime.WasmByteVec
+    wasm = WAT.wasm(mod) |> Wasmtime.WasmByteVec
 
     engine = WasmEngine()
     store = WasmStore(engine)
@@ -50,11 +50,11 @@ function func(a, b)
 end
 
 @testset "conds" begin
-    f = WC.emit_func(func, Tuple{Int32,Int32})
-    mod = WC.Module(f)
-    WC.optimize!(mod, 1)
+    f = WAT.emit_func(func, Tuple{Int32,Int32})
+    mod = WAT.Module(f)
+    WAT.optimize!(mod, 1)
 
-    wasm = WC.wasm(mod)
+    wasm = WAT.wasm(mod)
     wasm = wasm |> Wasmtime.WasmByteVec
 
     engine = WasmEngine()
@@ -74,7 +74,7 @@ end
     (; obj) = @code_wasm optimize=true mod=true max(0f0, 1)
     mod = obj
 
-    wasm = WC.wasm(mod) |> Wasmtime.WasmByteVec
+    wasm = WAT.wasm(mod) |> Wasmtime.WasmByteVec
 
     engine = Wasmtime.WasmEngine()
     store = Wasmtime.WasmStore(engine)
@@ -88,15 +88,15 @@ end
 
 @testset "sqrt" begin
     (; obj) = @code_wasm optimize=true mod=:malloc sqrt(1f0)
-    num_imports = count(imp -> imp isa WC.FuncImport, obj.imports)
+    num_imports = count(imp -> imp isa WAT.FuncImport, obj.imports)
     empty!(obj.imports) # remove malloc/free imports
     map!(obj.exports, obj.exports) do exp # renumber func exports
-        exp isa WC.FuncExport || return exp
-        WC.FuncExport(exp.name, exp.func - num_imports)
+        exp isa WAT.FuncExport || return exp
+        WAT.FuncExport(exp.name, exp.func - num_imports)
     end
     mod = obj
 
-    wasm = WC.wasm(mod) |> Wasmtime.WasmByteVec
+    wasm = WAT.wasm(mod) |> Wasmtime.WasmByteVec
 
     engine = Wasmtime.WasmEngine()
     store = Wasmtime.WasmStore(engine)
@@ -110,15 +110,15 @@ end
 end
 
 @testset "WAT: Instructions" begin
-    insts = WC.Inst[
-        WC.i32_load(),
-        WC.i32_store(),
-        WC.i32_reinterpret_f32(),
-        WC.f32_reinterpret_i32(),
+    insts = WAT.Inst[
+        WAT.i32_load(),
+        WAT.i32_store(),
+        WAT.i32_reinterpret_f32(),
+        WAT.f32_reinterpret_i32(),
     ]
 
     io = IOBuffer()
-    WC._printwasm(io, insts)
+    WAT._printwasm(io, insts)
     wat = String(take!(io))
 
     @test occursin("i32.load", wat)
@@ -130,13 +130,13 @@ end
 fac(n) = iszero(n) ? one(n) : fac(n-one(n)) * n
 
 @testset "Recursive call" begin
-    mod = WC.Module()
+    mod = WAT.Module()
 
-    WC.emit_func!(mod, fac, Tuple{Int32})
-    WC.export!(mod, "fac", findfirst(f -> f.name == "fac", mod.funcs))
-    WC.optimize!(mod, 1)
+    WAT.emit_func!(mod, fac, Tuple{Int32})
+    WAT.export!(mod, "fac", findfirst(f -> f.name == "fac", mod.funcs))
+    WAT.optimize!(mod, 1)
 
-    wasm = WC.wasm(mod) |> Wasmtime.WasmByteVec
+    wasm = WAT.wasm(mod) |> Wasmtime.WasmByteVec
 
     engine = WasmEngine()
     store = WasmtimeStore(engine)
@@ -154,13 +154,13 @@ end
 f(a, b) = g(a - 1, b)
 
 @testset "Mutually recursive functions" begin
-    mod = WC.Module()
+    mod = WAT.Module()
 
-    WC.emit_func!(mod, f, Tuple{Int32,Int32})
-    WC.export!(mod, "f", findfirst(f -> f.name == "f", mod.funcs))
-    WC.optimize!(mod, 1)
+    WAT.emit_func!(mod, f, Tuple{Int32,Int32})
+    WAT.export!(mod, "f", findfirst(f -> f.name == "f", mod.funcs))
+    WAT.optimize!(mod, 1)
 
-    wasm = WC.wasm(mod) |> Wasmtime.WasmByteVec
+    wasm = WAT.wasm(mod) |> Wasmtime.WasmByteVec
 
     engine = Wasmtime.WasmEngine()
     store = Wasmtime.WasmStore(engine)
@@ -184,8 +184,8 @@ end
         local_get(2),
     ])
 
-    WC.make_tees!(func)
-    WC.remove_unused!(func)
+    WAT.make_tees!(func)
+    WAT.remove_unused!(func)
 
     @test length(func.locals) == 1
     @test only(func.locals) == i64
@@ -205,7 +205,7 @@ end
         nop(),
     ]
 
-    code = WC._explore_blocks!(code, Int[])
+    code = WAT._explore_blocks!(code, Int[])
     num_blocks = 0
     foreach(code) do inst
         inst isa Block && (num_blocks += 1)
@@ -226,8 +226,8 @@ end
     ]
 
     f = Func("f", FuncType([], []), [], code)
-    WC.remove_useless_branches!(f)
-    WC.merge_blocks!(f)
+    WAT.remove_useless_branches!(f)
+    WAT.merge_blocks!(f)
 
     @test length(code) == 2
     @test first(code) == i32_const(1)
@@ -240,7 +240,7 @@ end
         i32_const(2),
         drop(),
     ]
-    WC._remove_useless_branches!(code)
+    WAT._remove_useless_branches!(code)
     @test length(code) == 2
     @test first(code) == i32_const(1)
     @test last(code) == drop() 
@@ -259,14 +259,14 @@ end
     x = X(1,2)
 
     (; obj) = @code_wasm optimize=false sexpr=true mod=:malloc g!(x)
-    num_imports = count(imp -> imp isa WC.FuncImport, obj.imports)
+    num_imports = count(imp -> imp isa WAT.FuncImport, obj.imports)
     empty!(obj.imports) # remove malloc/free imports
     map!(obj.exports, obj.exports) do exp # renumber func exports
-        exp isa WC.FuncExport || return exp
-        WC.FuncExport(exp.name, exp.func - num_imports)
+        exp isa WAT.FuncExport || return exp
+        WAT.FuncExport(exp.name, exp.func - num_imports)
     end
 
-    code = WC.wasm(obj)
+    code = WAT.wasm(obj)
 
     engine = WasmEngine()
     store = Wasmtime.WasmtimeStore(engine)
@@ -294,14 +294,14 @@ getfield(i) = Core.getfield((1,2,3,), i, true)
 
 @testset "Dynamic getfield" begin
     (; obj) = @code_wasm optimize=false mod=:malloc getfield(1)
-    num_imports = count(imp -> imp isa WC.FuncImport, obj.imports)
+    num_imports = count(imp -> imp isa WAT.FuncImport, obj.imports)
     empty!(obj.imports) # remove malloc/free imports
     map!(obj.exports, obj.exports) do exp # renumber func exports
-        exp isa WC.FuncExport || return exp
-        WC.FuncExport(exp.name, exp.func - num_imports)
+        exp isa WAT.FuncExport || return exp
+        WAT.FuncExport(exp.name, exp.func - num_imports)
     end
 
-    code = WC.wasm(obj)
+    code = WAT.wasm(obj)
 
     engine = WasmEngine()
     store = Wasmtime.WasmtimeStore(engine)
@@ -328,7 +328,7 @@ f(i) = isvalid("hello", i)
 
 @testset "isvalid(::String, ::Int)" begin
     (; obj) = @code_wasm mod=:malloc optimize=:binaryen f(1)
-    wasm = WC.wasm(obj) |> Wasmtime.WasmByteVec
+    wasm = WAT.wasm(obj) |> Wasmtime.WasmByteVec
 
     mem_base = Int32(0xff)
     malloc_called = false
@@ -384,7 +384,7 @@ end
 @testset "Irreducible control flow" begin
     (; obj) = @code_wasm mod=true ir_cfg(true,false)
 
-    code = WC.wasm(obj)
+    code = WAT.wasm(obj)
 
     engine = WasmEngine()
     store = Wasmtime.WasmtimeStore(engine)

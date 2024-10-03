@@ -14,20 +14,20 @@ Base.size(::WasmArray{T,N,S}) where {T,N,S} = S
 @inline Base.getindex(x::WasmArray{T}, i, other...) where {T} = T_load(T, Int32(x) + Int32(i - one(Int32)) * Int32(sizeof(T)))::T
 
 @inline Base.getindex(x::WasmArray{T}, i, other...) where {T<:Vec}= 
-    _wasmcall(T, (WC.v128_load(),), Int32(x) + Int32(i - one(Int32)) * Int32(16))
+    _wasmcall(T, (WAT.v128_load(),), Int32(x) + Int32(i - one(Int32)) * Int32(16))
 # T_load(WasmCompiler.WasmVector128, Int32(x) + Int32(i - one(Int32)) * Int32(16))::WasmCompiler.WasmVector128
 
 
 const f32x4 = Vec{4,Float32}
 
-Vec(f::Float32) = _wasmcall(f32x4, (WC.f32x4_splat(),), f)
-Vec(i::Int32) = _wasmcall(i32x4, (WC.i32x4_splat(),), i)
+Vec(f::Float32) = _wasmcall(f32x4, (WAT.f32x4_splat(),), f)
+Vec(i::Int32) = _wasmcall(i32x4, (WAT.i32x4_splat(),), i)
 
 import Base: +, -, *, /
-a::f32x4 + b::f32x4 = _wasmcall(f32x4, (WC.f32x4_add(),), a, b)
-a::f32x4 - b::f32x4 = _wasmcall(f32x4, (WC.f32x4_sub(),), a, b)
-a::f32x4 * b::f32x4 = _wasmcall(f32x4, (WC.f32x4_mul(),), a, b)
-a::f32x4 / b::f32x4 = _wasmcall(f32x4, (WC.f32x4_div(),), a, b)
+a::f32x4 + b::f32x4 = _wasmcall(f32x4, (WAT.f32x4_add(),), a, b)
+a::f32x4 - b::f32x4 = _wasmcall(f32x4, (WAT.f32x4_sub(),), a, b)
+a::f32x4 * b::f32x4 = _wasmcall(f32x4, (WAT.f32x4_mul(),), a, b)
+a::f32x4 / b::f32x4 = _wasmcall(f32x4, (WAT.f32x4_div(),), a, b)
 
 @inline Base.sum(::Vec{N,T}) where {N,T} = convert(T, 42)
 

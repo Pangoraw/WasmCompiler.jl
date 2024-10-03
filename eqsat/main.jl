@@ -2,12 +2,12 @@ using Metatheory
 using Metatheory.Library
 using TermInterface
 
-using WasmCompiler
+using WebAssemblyToolkit
 
-ex = WC.InstOperands(
-    WC.i32_mul(),
-    [WC.InstOperands(WC.i32_const(2), [], []),
-        WC.InstOperands(WC.local_get(1), [], [])],
+ex = WAT.InstOperands(
+    WAT.i32_mul(),
+    [WAT.InstOperands(WAT.i32_const(2), [], []),
+        WAT.InstOperands(WAT.local_get(1), [], [])],
     [],
 )
 
@@ -28,15 +28,15 @@ end
 
 # Const prop
 t = t ∪ @theory a b begin
-    i32_add(i32_const(a::Int32), i32_const(b::Int32)) => mkconst(WC.Interpreter.Runtime.i32_add(a, b))
-    i32_mul(i32_const(a::Int32), i32_const(b::Int32)) => mkconst(WC.Interpreter.Runtime.i32_mul(a, b))
-    i32_sub(i32_const(a::Int32), i32_const(b::Int32)) => mkconst(WC.Interpreter.Runtime.i32_sub(a, b))
-    i32_div(i32_const(a::Int32), i32_const(b::Int32)) => mkconst(WC.Interpreter.Runtime.i32_div(a, b))
+    i32_add(i32_const(a::Int32), i32_const(b::Int32)) => mkconst(WAT.Interpreter.Runtime.i32_add(a, b))
+    i32_mul(i32_const(a::Int32), i32_const(b::Int32)) => mkconst(WAT.Interpreter.Runtime.i32_mul(a, b))
+    i32_sub(i32_const(a::Int32), i32_const(b::Int32)) => mkconst(WAT.Interpreter.Runtime.i32_sub(a, b))
+    i32_div(i32_const(a::Int32), i32_const(b::Int32)) => mkconst(WAT.Interpreter.Runtime.i32_div(a, b))
 
-    i64_add(i64_const(a::Int64), i64_const(b::Int64)) => mkconst(WC.Interpreter.Runtime.i64_add(a, b))
-    i64_sub(i64_const(a::Int64), i64_const(b::Int64)) => mkconst(WC.Interpreter.Runtime.i64_sub(a, b))
-    i64_mul(i64_const(a::Int64), i64_const(b::Int64)) => mkconst(WC.Interpreter.Runtime.i64_mul(a, b))
-    i64_div(i64_const(a::Int64), i64_const(b::Int64)) => mkconst(WC.Interpreter.Runtime.i64_div(a, b))
+    i64_add(i64_const(a::Int64), i64_const(b::Int64)) => mkconst(WAT.Interpreter.Runtime.i64_add(a, b))
+    i64_sub(i64_const(a::Int64), i64_const(b::Int64)) => mkconst(WAT.Interpreter.Runtime.i64_sub(a, b))
+    i64_mul(i64_const(a::Int64), i64_const(b::Int64)) => mkconst(WAT.Interpreter.Runtime.i64_mul(a, b))
+    i64_div(i64_const(a::Int64), i64_const(b::Int64)) => mkconst(WAT.Interpreter.Runtime.i64_div(a, b))
 end
 
 t = t ∪ @commutative_monoid (i32_add) i32_const(Int32(0))
@@ -51,8 +51,8 @@ t = t ∪ @commutative_monoid (f64_add) f64_const(0.0)
 t = t ∪ @commutative_monoid (f64_mul) f64_const(1.0)
 
 function toexpr(iop)
-    iop.inst isa WC.i32_const && return Expr(:call, :i32_const, iop.inst.val)
-    iop.inst isa WC.local_get && return Expr(:call, :local_get, iop.inst.n)
+    iop.inst isa WAT.i32_const && return Expr(:call, :i32_const, iop.inst.val)
+    iop.inst isa WAT.local_get && return Expr(:call, :local_get, iop.inst.n)
     Expr(:call, nameof(typeof(iop.inst)), toexpr.(iop.operands)...)
 end
 

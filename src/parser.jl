@@ -390,7 +390,7 @@ function make_inst_linear!(inst, args, ctx)
             push!(inst, struct_new(strty))
         elseif head === :br_if || head === :br
             dest = _resolve_label(ctx, popfirst!(args))
-            push!(inst, getproperty(WC, head)(_resolve_label(ctx, dest)))
+            push!(inst, getproperty(WAT, head)(_resolve_label(ctx, dest)))
         elseif head === :br_table
             labels = Int[]
     
@@ -437,7 +437,7 @@ function make_inst_linear!(inst, args, ctx)
             @assert popfirst!(args) === :end "invalid block"
             push!(inst, Block(fntype, newinst))
         else
-            T = getproperty(WC, head)
+            T = getproperty(WAT, head)
             @assert T <: Inst "invalid head $head $T"
             push!(inst, T())
         end
@@ -555,7 +555,7 @@ function make_inst!(inst, ex, ctx)
                     :i32_store8, :i32_store16, :i64_store8, :i64_store16, :i64_store32]
         memarg = parse_memarg!(args)
         make_inst!(inst, args, ctx)
-        push!(inst, getproperty(WC, head)(memarg))
+        push!(inst, getproperty(WAT, head)(memarg))
     elseif head in [:i8x16_add, :i16x8_add, :i32x4_add, :i64x2_add, :f32x4_add, :f64x2_add,
                     :i8x16_sub, :i16x8_sub, :i32x4_sub, :i64x2_sub, :f32x4_sub, :f64x2_sub,
                     :i8x16_mul, :i16x8_mul, :i32x4_mul, :i64x2_mul, :f32x4_mul, :f64x2_mul,
@@ -585,7 +585,7 @@ function make_inst!(inst, ex, ctx)
     elseif head === :br_if || head === :br
         dest = _resolve_label(ctx, popfirst!(args))
         make_inst!(inst, args, ctx)
-        push!(inst, getproperty(WC, head)(dest))
+        push!(inst, getproperty(WAT, head)(dest))
     elseif head === :br_table
         labels = Int[]
 
@@ -656,9 +656,9 @@ function make_inst!(inst, ex, ctx)
         push!(inst, Block(fntype, newinst))
     elseif head === :ref_extern
         push!(inst, i32_const(popfirst!(args)))
-    elseif isdefined(WC, head) && getproperty(WC, head) isa Type && getproperty(WC, head) <: Inst
+    elseif isdefined(WAT, head) && getproperty(WAT, head) isa Type && getproperty(WAT, head) <: Inst
         make_inst!(inst, args, ctx)
-        push!(inst, getproperty(WC, head)())
+        push!(inst, getproperty(WAT, head)())
     else
         if startswith(string(head), '$')
             error("invalid label $head")

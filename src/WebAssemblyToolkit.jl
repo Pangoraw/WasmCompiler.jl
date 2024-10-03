@@ -1,4 +1,8 @@
-module WasmCompiler
+module WebAssemblyToolkit
+
+const WAT = @__MODULE__
+
+export @wat_str, WAT
 
 include("./utils.jl")
 include("./binaryen.jl")
@@ -23,7 +27,7 @@ struct Wat
 end
 Wat(obj) = Wat(obj, false)
 
-Base.show(io::IO, wat::Wat) = WasmCompiler._printwasm(IOContext(io, :print_sexpr => wat.sexpr), wat.obj)
+Base.show(io::IO, wat::Wat) = WAT._printwasm(IOContext(io, :print_sexpr => wat.sexpr), wat.obj)
 
 """
     @code_wasm f(args...)
@@ -82,30 +86,30 @@ macro code_wasm(exprs...)
         quote
             types = Tuple{map(Core.Typeof, $(args))...}
             module_ = $(wmod) === :runtime ?
-                WasmCompiler.RuntimeModule() :
+                WebAssemblyToolkit.RuntimeModule() :
                 $(wmod) === :malloc ?
-                WasmCompiler.MallocModule() :
-                WasmCompiler.Module()
+                WebAssemblyToolkit.MallocModule() :
+                WebAssemblyToolkit.Module()
             num_funcs = length(module_.funcs)
-            WasmCompiler.emit_func!(module_, $f, types;
+            WebAssemblyToolkit.emit_func!(module_, $f, types;
                                     debug=$(debug),
-                                    mode=$(wmod) === :malloc ? $(WasmCompiler.Malloc) :
-                                                               $(WasmCompiler.GCProposal))
+                                    mode=$(wmod) === :malloc ? $(WebAssemblyToolkit.Malloc) :
+                                                               $(WebAssemblyToolkit.GCProposal))
             if applicable(nameof, $f)
-                WasmCompiler.export!(module_, string(nameof($f)), num_funcs + 1)
+                WebAssemblyToolkit.export!(module_, string(nameof($f)), num_funcs + 1)
             end
 
             if $(esc(validate)) !== false
-                WC.validate(module_)
+                WAT.validate(module_)
             end
 
             if $(esc(optimize)) !== false
                 lvl = !($(esc(optimize)) isa Int) ? 1 : $(esc(optimize))
-                module_ = WasmCompiler.optimize!(module_, lvl)
+                module_ = WebAssemblyToolkit.optimize!(module_, lvl)
             end
 
             if $(esc(optimize)) === :binaryen
-                module_ = WasmCompiler.optimize(module_; debug=$debug)
+                module_ = WebAssemblyToolkit.optimize(module_; debug=$debug)
             end
 
             Wat(module_, $(print_sexpr))
@@ -113,9 +117,9 @@ macro code_wasm(exprs...)
     else
         quote
             types = Tuple{map(Core.Typeof, $(args))...}
-            func = WasmCompiler.emit_func($f, types; debug=$debug)
+            func = WebAssemblyToolkit.emit_func($f, types; debug=$debug)
             if $(esc(optimize)) !== false
-                WasmCompiler.optimize_func!(func, $(esc(optimize)) === true ? 1 : $(esc(optimize)))
+                WebAssemblyToolkit.optimize_func!(func, $(esc(optimize)) === true ? 1 : $(esc(optimize)))
             end
             Wat(func, $(print_sexpr))
         end
@@ -128,21 +132,17 @@ end
 Parses the web assembly text content and returns a parsed module.
 
 ```julia-repl
-julia> wat"(module)" |> WasmCompiler.wast
+julia> wat"(module)" |> WebAssemblyToolkit.wast
 "(module)"
 ```
 """
 macro wat_str(s)
     quote
-        WC.parse_wast(IOBuffer($s))[1]::Module
+        WAT.parse_wast(IOBuffer($s))[1]::Module
     end
 end 
 
 wat(obj) = sprint(show, Wat(obj))
 wast(obj::Module) = sprint(show, Wat(obj, true))
 
-const WC = @__MODULE__
-
-export @code_wasm, @wat_str, WC
-
-end # module WasmCompiler
+end # module WebAssemblyToolkit

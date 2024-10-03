@@ -2,9 +2,9 @@ module Interpreter
 
 include("./runtime.jl")
 
-using ..WasmCompiler
-using ..WasmCompiler: GlobalType, Module, MemoryType, ValType, FuncType, StructType, Lanes, MathOperators
-using ..WasmCompiler:
+using ..WebAssemblyToolkit
+using ..WebAssemblyToolkit: GlobalType, Module, MemoryType, ValType, FuncType, StructType, Lanes, MathOperators
+using ..WebAssemblyToolkit:
     i32_const, f32_const, f64_const, f32_lt, local_get, local_set, local_tee,
     i32_eq, i32_ne, i32_lt_s, i32_lt_u, i32_le_s, i32_le_u, i32_gt_s, i32_gt_u, i32_ge_s, i32_ge_u,
     i64_eq, i64_ne, i64_lt_s, i64_lt_u, i64_le_s, i64_le_u, i64_gt_s, i64_gt_u, i64_ge_s, i64_ge_u,
@@ -92,7 +92,7 @@ struct FuncRef
 end
 
 function (fr::FuncRef)(args...)
-    ft = WC.get_function_type(fr.inst.mod, fr.idx)
+    ft = WAT.get_function_type(fr.inst.mod, fr.idx)
     results = invoke(fr.inst, fr.idx, collect(args))
     isempty(ft.results) && return nothing
     return last(results, length(ft.results))
@@ -101,11 +101,11 @@ end
 function exports(instance)
     exports = Dict{Symbol,Any}()
     for exp in instance.mod.exports
-        if exp isa WC.FuncExport
+        if exp isa WAT.FuncExport
             exports[Symbol(exp.name)] = FuncRef(instance, exp.func)
-        elseif exp isa WC.MemExport
+        elseif exp isa WAT.MemExport
             exports[Symbol(exp.name)] = instance.mems[exp.mem]
-        elseif exp isa WC.GlobalExport
+        elseif exp isa WAT.GlobalExport
             exports[Symbol(exp.name)] = instance.globals[exp.globalidx]
         end
     end
@@ -113,15 +113,15 @@ function exports(instance)
 end
 
 function instantiate(module_, imports=(;))
-    mems = if any(imp -> imp isa WC.MemImport, module_.imports)
-        mem_import = module_.imports[findfirst(imp -> imp isa WC.MemImport, module_.imports)]
+    mems = if any(imp -> imp isa WAT.MemImport, module_.imports)
+        mem_import = module_.imports[findfirst(imp -> imp isa WAT.MemImport, module_.imports)]
         Memory[imports[mem_import.mod_name][mem_import.name]]
     else
         map(m -> Memory(m.type), module_.mems)
     end
 
     imported_funcs = map(imp -> imports[imp.mod_name][imp.name],
-                         filter(imp -> imp isa WC.FuncImport, module_.imports))
+                         filter(imp -> imp isa WAT.FuncImport, module_.imports))
 
     num_funcs = length(module_.funcs)
     globals = Global[]
@@ -146,7 +146,7 @@ function instantiate(module_, imports=(;))
     end
 
     for data in module_.datas
-        if data.mode isa WasmCompiler.DataModeActive
+        if data.mode isa WebAssemblyToolkit.DataModeActive
             buf = inst.mems[data.mode.memory+1].buf
             frame = CallFrame()
             interpret(inst, frame, data.mode.offset)
@@ -185,7 +185,7 @@ end
 CallFrame() = CallFrame(nothing, Any[], Any[])
 
 function interpret(instance, frame, expr)
-    expr_stack = Vector{WasmCompiler.Inst}[expr]
+    expr_stack = Vector{WebAssemblyToolkit.Inst}[expr]
     stack_ptr_stack = Int[0]
     pc_stack = Int[lastindex(expr)+1]
 
@@ -199,7 +199,7 @@ function interpret(instance, frame, expr)
         end
         pc > lastindex(expr) && return
         inst = expr[pc]
-        if inst isa WC.ContainerInst
+        if inst isa WAT.ContainerInst
             num_to_keep = inst isa Loop ? length(inst.fntype.params) : length(inst.fntype.results)
             splice!(frame.value_stack,
                     stack_ptr+1:lastindex(frame.value_stack)-num_to_keep)
@@ -720,7 +720,7 @@ function interpret(instance, frame, expr)
                 push!(frame.value_stack, b)
             end
         elseif inst isa call
-            ft = WC.get_function_type(instance.mod, inst.func)
+            ft = WAT.get_function_type(instance.mod, inst.func)
             arguments = reverse([pop!(frame.value_stack) for _ in ft.params])
             results = invoke(instance, inst.func, arguments)
             append!(frame.value_stack, results)
@@ -739,17 +739,17 @@ function interpret(instance, frame, expr)
             b = pop!(frame.value_stack)::NTuple{16,UInt8}
             a = pop!(frame.value_stack)::NTuple{16,UInt8}
             a, b = if inst.lane == Lanes.i8
-                WC.i8x16(a), WC.i8x16(b)
+                WAT.i8x16(a), WAT.i8x16(b)
             elseif inst.lane == Lanes.i16
-                WC.i16x8(a), WC.i16x8(b)
+                WAT.i16x8(a), WAT.i16x8(b)
             elseif inst.lane == Lanes.i32
-                WC.i32x4(a), WC.i32x4(b)
+                WAT.i32x4(a), WAT.i32x4(b)
             elseif inst.lane == Lanes.i64
-                WC.i64x2(a), WC.i64x2(b)
+                WAT.i64x2(a), WAT.i64x2(b)
             elseif inst.lane == Lanes.f32
-                WC.f32x4(a), WC.f32x4(b)
+                WAT.f32x4(a), WAT.f32x4(b)
             elseif inst.lane == Lanes.f64
-                WC.f64x2(a), WC.f64x2(b)
+                WAT.f64x2(a), WAT.f64x2(b)
             end
 
             res = if inst.op == MathOperators.add
@@ -767,17 +767,17 @@ function interpret(instance, frame, expr)
             end
 
             push!(frame.value_stack, if inst.lane == Lanes.i8
-                WC.i8x16(res...)
+                WAT.i8x16(res...)
             elseif inst.lane == Lanes.i16
-                WC.i16x8(res...)
+                WAT.i16x8(res...)
             elseif inst.lane == Lanes.i32
-                WC.i32x4(res...)
+                WAT.i32x4(res...)
             elseif inst.lane == Lanes.i64
-                WC.i64x2(res...)
+                WAT.i64x2(res...)
             elseif inst.lane == Lanes.f32
-                WC.f32x4(res...)
+                WAT.f32x4(res...)
             elseif inst.lane == Lanes.f64
-                WC.f64x2(res...)
+                WAT.f64x2(res...)
             end)
         elseif inst isa memory_grow
             mem = instance.mems[1]
@@ -877,11 +877,11 @@ else
 end
 
 function invoke(instance, idx, args)
-    num_imports = count(imp -> imp isa WC.FuncImport, instance.mod.imports)
+    num_imports = count(imp -> imp isa WAT.FuncImport, instance.mod.imports)
 
     if idx <= num_imports
         result = instance.imported_funcs[idx](args...)
-        ft = WC.get_function_type(instance.mod, idx)
+        ft = WAT.get_function_type(instance.mod, idx)
         if isempty(ft.results)
             return Any[]
         elseif length(ft.results) == 1

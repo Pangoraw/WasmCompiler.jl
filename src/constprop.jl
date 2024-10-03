@@ -1,7 +1,7 @@
 module ConstantPropagation
 
-using ..WasmCompiler: InstOperands, f32_const, f64_const, i32_const, i64_const, select
-using ..WasmCompiler.Interpreter: Runtime
+using ..WebAssemblyToolkit: InstOperands, f32_const, f64_const, i32_const, i64_const, select
+using ..WebAssemblyToolkit.Interpreter: Runtime
 
 const ConstInst = Union{f32_const,f64_const,i32_const,i64_const}
 unwrap(ci::ConstInst) = ci.val

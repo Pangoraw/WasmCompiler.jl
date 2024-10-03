@@ -1,4 +1,4 @@
-using Deno_jll, JSON3, Base64, WasmCompiler
+using Deno_jll, JSON3, Base64
 
 function send_command!(p, cmd)
     write(p, JSON3.write(cmd))
