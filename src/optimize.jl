@@ -581,7 +581,6 @@ function optimize!(mod, lvl=0)
     mod
 end
 function optimize_func!(f, lvl=0)
-    f
     if lvl > 0
         make_tees!(f)
         remove_unused!(f)

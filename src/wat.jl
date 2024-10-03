@@ -105,7 +105,7 @@ function _printwasm(io::IO, mod::Module)
         println(io)
     end
 
-    ctx = IOContext(io, :mod => mod, :ctx => indent + INDENT_INC)
+    ctx = IOContext(io, :mod => mod, :indent => indent + INDENT_INC)
     for global_ in mod.globals
         print(io, INDENT_S^indent, "(")
         _printkw(io, "global")
@@ -114,9 +114,17 @@ function _printwasm(io::IO, mod::Module)
         global_.type.mut && (print(io, '('); _printkw(io, "mut"); print(io, ' '))
         _printwasm(ctx, global_.type.type)
         global_.type.mut && print(io, ')')
-        print(io, " (")
-        _printwasm(ctx, global_.init)
-        println(io, "))")
+        if length(global_.init) > 1
+            println("(")
+            _printwasm(ctx, global_.init)
+            println()
+            print(INDENT_S ^ indent, ")")
+        else
+            print(io, " (")
+            _printwasm(io, global_.init)
+            print(io, ")")
+        end
+        println(io, ")")
     end
 
     !isempty(mod.globals) && println(io)

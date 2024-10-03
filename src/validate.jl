@@ -299,8 +299,8 @@ end
 
 # https://webassembly.github.io/spec/core/valid/instructions.html#constant-expressions
 function is_constant(expr::Vector{Inst})
-    all(expr) do inst
-        inst isa Union{i32_const,i64_const,f32_const,f64_const,ref_null,global_get} # ref_func
+    res = all(expr) do inst
+        inst isa Union{i32_const,i64_const,f32_const,f64_const,ref_null,global_get,array_new_fixed} # ref_func
     end
 end
 
@@ -432,6 +432,12 @@ inst_func_type(val, sn::struct_new) =
         map(f -> f.type, val.mod.types[sn.typeidx].fields),
         [StructRef(false, sn.typeidx)])
 inst_func_type(val, sg::struct_get) = FuncType([StructRef(false, sg.typeidx)], [val.mod.types[sg.typeidx].fields[sg.fieldidx].type])
+inst_func_type(val, ag::array_get) = FuncType([ArrayRef(false, ag.typeidx), i32], [val.mod.types[ag.typeidx].content])
+
+function inst_func_type(val, an::array_new_fixed)
+    arrayty = val.mod.types[an.typeidx]
+    FuncType([arrayty.content for _ in 1:an.length], [ArrayRef(false, an.typeidx)])
+end
 
 inst_func_type(_, rc::ref_cast) = FuncType([], [rc.ref])
 
