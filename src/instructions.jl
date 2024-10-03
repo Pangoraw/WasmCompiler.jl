@@ -4,6 +4,17 @@ it must be converted to zero-based.
 """
 const Index = UInt32
 
+"""
+    ValType
+
+The supertype of all value types in WebAssembly.
+Such types are for examples:
+
+    - `i32`
+    - `f64`
+    - `v128`
+
+"""
 abstract type ValType end
 
 abstract type WasmNumeric <: ValType end
@@ -26,6 +37,11 @@ const f32 = WasmFloat32()
 const f64 = WasmFloat64()
 const v128 = WasmVector128()
 
+"""
+    WasmRef
+
+Reference types.
+"""
 abstract type WasmRef <: ValType end
 
 struct NoFuncRef <: WasmRef
@@ -53,19 +69,41 @@ struct I31Ref <: WasmRef
     null::Bool
 end
 
+"""
+    ArrayRef(null, typeidx)
+
+A GC reference to an array.
+"""
 struct ArrayRef <: WasmRef
     null::Bool
     typeidx::Union{Nothing,Index}
 end
 
+"""
+    StructRef(null, typeidx)
+
+A GC reference to a struct.
+"""
 struct StructRef <: WasmRef
     null::Bool
     typeidx::Union{Nothing,Index}
 end
 
+"""
+    StringRef(null)
+
+A reference to a string (from the string proposal).
+"""
 struct StringRef <: WasmRef
     null::Bool
 end
+
+"""
+    valtype(T)
+
+Returns the corresponding `ValType` for a given julia primitive type.
+"""
+function valtype end
 
 valtype(::Type{Bool}) = i32
 valtype(::Type{Int32}) = i32
@@ -89,6 +127,11 @@ end
 
 abstract type WasmType end
 
+"""
+    FuncType(params, results)
+
+A function type, which is also used in WebAssembly for block, loops, and if instructions.
+"""
 struct FuncType <: WasmType
     params::Vector{ValType}
     results::Vector{ValType}
@@ -98,28 +141,68 @@ Base.copy(fntype::FuncType) = FuncType(copy(fntype.params), copy(fntype.results)
 Base.:(==)(fntype1::FuncType, fntype2::FuncType) =
     fntype1.params == fntype2.params && fntype1.results == fntype2.results
 
+"""
+    MemArg(align, offset)
+
+A memory argument used by all memory instructions.
+"""
 struct MemArg
     align::UInt32
     offset::UInt32
 end
 MemArg() = MemArg(0, 0)
 
+"""
+    Inst
+
+The supertype of all instructions.
+A sequence of such instructions represents the basis
+for a WebAssembly code segment.
+"""
 abstract type Inst end
 
+"""
+    ContainerInst <: Inst
+
+Supertype of container instructions (Block, Loop, If, Try)
+"""
 abstract type ContainerInst <: Inst end
+
+"""
+    TerminatorInst <: Inst
+
+Supertype of instructions which change the linear execution of a list of instructions.
+Examples are `unreachable`, `return`, ...
+"""
 abstract type TerminatorInst <: Inst end
 
+"""
+    Block(fntype, inst) <: ContainerInst
+
+A sequence of WebAssembly instructions which can consume and return values depending
+on its associated function type.
+"""
 struct Block <: ContainerInst
     fntype::FuncType
     inst::Vector{Inst}
 end
 
+"""
+    If(fntype, trueinst, falseinst) <: ContainerInst
+
+It consumes a `i32` on executes either `trueinst` or `falseint` as blocks depending on the value.
+"""
 struct If <: ContainerInst
     fntype::FuncType
     trueinst::Vector{Inst}
     falseinst::Vector{Inst}
 end
 
+"""
+    Loop(fntype, inst)
+
+Like a `Block` but branch target the beginning of the block.
+"""
 struct Loop <: ContainerInst
     fntype::FuncType
     inst::Vector{Inst}
@@ -177,7 +260,18 @@ struct local_set <: Inst
     n::Index
 end
 
+"""
+    UnaryInst <: Inst
+
+Instructions which take a single operand (non-exhaustive).
+"""
 abstract type UnaryInst <: Inst end
+
+"""
+    BinaryInst <: Inst
+
+Instructions which take two operands (non-exhaustive).
+"""
 abstract type BinaryInst <: Inst end
 
 for (WT, T) in zip((f32, f64), (Float32, Float64))
@@ -630,4 +724,3 @@ end
 struct string_const <: Inst
     stringidx::Index # index in Module.strings
 end
-

@@ -21,6 +21,18 @@ include("./interpreter.jl")
 include("./builder.jl")
 include("./constprop.jl")
 
+"""
+    Wat(obj, wast::Bool)
+
+A wrapper object that pretty prints to WAT or WAST syntax.
+
+```julia-repl
+julia> module_ = WebAssemblyToolkit.Module();
+
+julia> WAT.Wat(module_)
+(module)
+```
+"""
 struct Wat
     obj::Any
     sexpr::Bool
@@ -142,7 +154,28 @@ macro wat_str(s)
     end
 end 
 
+"""
+    wat(::Module) -> String
+
+Returns the WebAssembly text representation for a given module.
+
+```julia-repl
+julia> WebAssemblyToolkit.wat(WebAssemblyToolkit.Module())
+"(module)"
+```
+"""
 wat(obj) = sprint(show, Wat(obj))
+
+"""
+    wast(::Module) -> String
+
+Returns the WebAssembly s-expression text representation for a given module.
+
+```julia-repl
+julia> WebAssemblyToolkit.wast(WebAssemblyToolkit.Module())
+"(module)"
+```
+"""
 wast(obj::Module) = sprint(show, Wat(obj, true))
 
 end # module WebAssemblyToolkit

@@ -713,6 +713,23 @@ function wwrite(io::IO, wmod::Module; names=true, producers=true)
     end
 end
 
+"""
+    wasm(::Module; names::Bool=true, producers::Bool=true) -> Vector{UInt8}
+
+Emit and return the wasm binary as a `Vector{UInt8}`.
+
+ - The `names` kwarg configures wether or not the names section should be emitted.
+ - The `producers` kwarg configures whether or not the producer section should be emitted.
+
+```julia-repl
+julia> WebAssemblyToolkit.Module() |>
+         WebAssemblyToolkit.wasm |>
+         IOBuffer |>
+         WebAssemblyToolkit.wread |>
+         WebAssemblyToolkit.Wat # This round trips
+(module)
+```
+"""
 function wasm(wmod; names=true, producers=true)
     io = IOBuffer()
     wwrite(io, wmod; names, producers)
