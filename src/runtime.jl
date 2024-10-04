@@ -116,6 +116,9 @@ f64_convert_i32_u(a::Int32) = Float64(reinterpret(UInt32, a))
 f64_convert_i64_s(a::Int64) = Float64(a)
 f64_convert_i64_u(a::Int64) = Float64(reinterpret(UInt64, a))
 
+i32_reinterpret_f32(a::Float32) = reinterpret(Int32, a)
+i64_reinterpret_f64(a::Float64) = reinterpret(Int64, a)
+
 f32_reinterpret_i32(a::Int32) = reinterpret(Float32, a)
 f64_reinterpret_i64(a::Int64) = reinterpret(Float64, a)
 

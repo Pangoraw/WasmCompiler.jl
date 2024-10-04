@@ -3,7 +3,7 @@ module Interpreter
 include("./runtime.jl")
 
 using ..WebAssemblyToolkit
-using ..WebAssemblyToolkit: GlobalType, Module, MemoryType, ValType, FuncType, StructType, Lanes, MathOperators
+using ..WebAssemblyToolkit: GlobalType, Module, MemoryType, ValType, FuncType, StructType, ArrayType, Lanes, MathOperators
 using ..WebAssemblyToolkit:
     i32_const, f32_const, f64_const, f32_lt, local_get, local_set, local_tee,
     i32_eq, i32_ne, i32_lt_s, i32_lt_u, i32_le_s, i32_le_u, i32_gt_s, i32_gt_u, i32_ge_s, i32_ge_u,
@@ -37,6 +37,7 @@ using ..WebAssemblyToolkit:
     f32_demote_f64, f64_promote_f32,
     i32_trunc_f32_s, i32_trunc_f32_u, f32_reinterpret_i32,
     i64_trunc_f64_s, i64_trunc_f64_u, f64_reinterpret_i64,
+    i32_reinterpret_f32, i64_reinterpret_f64,
     i64_extend_i32_s, i64_extend_i32_u,
     f32_convert_i32_u, f32_convert_i64_u,
     f32_convert_i32_s, f32_convert_i64_s,
@@ -48,6 +49,7 @@ using ..WebAssemblyToolkit:
     global_set, global_get,
     select, br, br_if, br_table, nop, unreachable, return_, drop,
     struct_new, struct_get,
+    array_get, array_new_fixed,
     i32, i64, f32, f64, v128
 
 const PAGE_SIZE = 65536
@@ -132,13 +134,17 @@ function instantiate(module_, imports=(;))
 
     for (i, ty) in enumerate(module_.types)
         if ty isa StructType
-            params = map(f -> jltype(f.type), ty.fields)
+            params = map(f -> jltype(inst, f.type), ty.fields)
             inst.struct_types[i] = Tuple{params...}
+        end
+
+        if ty isa ArrayType
+            inst.struct_types[i] = Vector{jltype(inst, ty.content)}
         end
     end
 
     for global_ in module_.globals
-        T = jltype(global_.type.type)
+        T = jltype(inst, global_.type.type)
         frame = CallFrame()
         interpret(inst, frame, global_.init)
         init = only(frame.value_stack)::T
@@ -455,6 +461,9 @@ function interpret(instance, frame, expr)
         elseif inst isa i32_popcnt
             a = pop!(frame.value_stack)::Int32
             push!(frame.value_stack, Runtime.i32_popcnt(a))
+        elseif inst isa i32_reinterpret_f32
+            a = pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.i32_reinterpret_f32(a))
         elseif inst isa i32_rem_s
             b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
             push!(frame.value_stack, Runtime.i32_rem_s(a, b))
@@ -554,6 +563,9 @@ function interpret(instance, frame, expr)
         elseif inst isa i64_popcnt
             a = pop!(frame.value_stack)::Int64
             push!(frame.value_stack, Runtime.i64_popcnt(a))
+        elseif inst isa i64_reinterpret_f64
+            a = pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.i64_reinterpret_f64(a))
         elseif inst isa i64_rem_s
             b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
             push!(frame.value_stack, Runtime.i64_rem_s(a, b))
@@ -812,6 +824,17 @@ function interpret(instance, frame, expr)
             T = instance.struct_types[inst.typeidx]
             v = pop!(frame.value_stack)::T
             push!(frame.value_stack, getfield(v, Int(inst.fieldidx)))
+        elseif inst isa array_new_fixed
+            arrayty = instance.struct_types[inst.typeidx]
+            len = inst.length
+            values = last(frame.value_stack, len)
+            splice!(frame.value_stack, lastindex(frame.value_stack)-len+1:lastindex(frame.value_stack))
+            push!(frame.value_stack, arrayty(values))
+        elseif inst isa array_get
+            arrayty = instance.struct_types[inst.typeidx]
+            index = pop!(frame.value_stack)::Int32
+            array = pop!(frame.value_stack)::arrayty
+            push!(frame.value_stack, array[1 + index]) 
         elseif inst isa If
             cond = pop!(frame.value_stack)::Int32
             push_label_stack!(Runtime.i32_to_bool(cond) ? inst.trueinst : inst.falseinst)
@@ -856,7 +879,7 @@ function interpret(instance, frame, expr)
     end
 end
 
-jltype(valtype) = if valtype == i32
+jltype(instance, valtype) = if valtype == i32
     Int32
 elseif valtype == i64
     Int64
@@ -866,6 +889,9 @@ elseif valtype == f64
     Float64
 elseif valtype == v128
     NTuple{16,UInt8}
+elseif valtype isa WAT.StructRef
+    ty = instance.struct_types[valtype.typeidx]
+    return ty
 else
     error("invalid valtype $valtype")
 end
@@ -909,11 +935,11 @@ function invoke(instance, idx, args)
 
     frame = CallFrame(
         func.fntype,
-        Any[wzero(jltype(v)) for v in func.locals],
+        Any[wzero(jltype(instance, v)) for v in func.locals],
         Any[],
     )
     for (i, (T,arg)) in enumerate(zip(func.fntype.params, args))
-        if !(arg isa jltype(T))
+        if !(arg isa jltype(instance, T))
             error("invalid argument #$i of type $(typeof(arg)), wanted $(T)")
         end
         frame.locals[i] = arg
