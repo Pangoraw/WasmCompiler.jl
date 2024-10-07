@@ -62,7 +62,7 @@ function read_signed(T, io::IO)
         shift += 7
 
         if (byte & 0x80) == 0x00
-            if shift < sizeof(T) && (byte & 0x40) != 0x00
+            if shift < 8sizeof(T) && (byte & 0x40) != 0x00
                 return result | (~0 << shift)
             end
             return result
