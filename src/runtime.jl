@@ -122,7 +122,59 @@ i64_reinterpret_f64(a::Float64) = reinterpret(Int64, a)
 f32_reinterpret_i32(a::Int32) = reinterpret(Float32, a)
 f64_reinterpret_i64(a::Int64) = reinterpret(Float64, a)
 
-i64_trunc_f64_s(a::Float64) = Int64(floor(a))
+function i32_trunc_f32_s(a::Float32)
+    isfinite(a) || error("cannot convert to integer")
+
+    ta = trunc(a)
+    ta ∉ typemin(Int32):typemax(Int32) && error("integer overflow")
+
+    Int32(ta)
+end
+function i32_trunc_f32_u(a::Float32)
+    isfinite(a) || error("cannot convert to integer")
+
+    ta = trunc(a)
+    ta ∉ typemin(UInt32):typemax(UInt32) && error("integer overflow")
+
+    reinterpret(Int32, UInt32(ta))
+end
+function i64_trunc_f64_s(a::Float64)
+    isfinite(a) || error("cannot convert to integer")
+
+    ta = trunc(a)
+    ta ∉ typemin(Int64):typemax(Int64) && error("integer overflow")
+
+    Int64(ta)
+end
+function i64_trunc_f64_u(a::Float64)
+    isfinite(a) || error("cannot convert to integer")
+
+    ta = trunc(a)
+    ta ∉ typemin(UInt64):typemax(UInt64) && error("integer overflow")
+
+    reinterpret(Int64, UInt64(ta))
+end
+
+function i32_trunc_sat_f32_s(a::Float32)
+    isnan(a) && return Int32(0)
+    ta = clamp(trunc(a), typemin(Int32), typemax(Int32))
+    Int32(ta)
+end
+function i32_trunc_sat_f32_u(a::Float32)
+    isnan(a) && return Int32(0)
+    ta = clamp(trunc(a), typemin(UInt32), typemax(UInt32))
+    reinterpret(Int32, UInt32(ta))
+end
+function i64_trunc_sat_f64_s(a::Float64)
+    isnan(a) && return Int64(0)
+    ta = clamp(trunc(a), typemin(Int64), typemax(Int64))
+    Int64(ta)
+end
+function i64_trunc_sat_f64_u(a::Float64)
+    isnan(a) && return Int64(0)
+    ta = clamp(trunc(a), typemin(UInt64), typemax(UInt64))
+    reinterpret(Int64, UInt64(ta))
+end
 
 f32_demote_f64(a::Float64) = Float32(a)
 f64_promote_f32(a::Float32) = Float64(a)

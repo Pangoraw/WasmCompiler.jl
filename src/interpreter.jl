@@ -34,9 +34,14 @@ using ..WebAssemblyToolkit:
     f64_neg, f64_add, f64_sub, f64_mul, f64_div, f64_nearest,
     f32_ne, f32_eq, f32_gt, f32_ge, f32_le, f32_lt, 
     f64_ne, f64_eq, f64_gt, f64_ge, f64_le, f64_lt, 
-    f32_demote_f64, f64_promote_f32,
-    i32_trunc_f32_s, i32_trunc_f32_u, f32_reinterpret_i32,
-    i64_trunc_f64_s, i64_trunc_f64_u, f64_reinterpret_i64,
+    f32_demote_f64, f64_promote_f32, f32_reinterpret_i32,
+    i32_trunc_f32_s, i32_trunc_f32_u,
+    i32_trunc_sat_f32_s, i32_trunc_sat_f32_u,
+    i32_trunc_sat_f64_s, i32_trunc_sat_f64_u,
+    i64_trunc_f64_s, i64_trunc_f64_u,
+    i64_trunc_sat_f32_s, i64_trunc_sat_f32_u,
+    i64_trunc_sat_f64_s, i64_trunc_sat_f64_u,
+    f64_reinterpret_i64,
     i32_reinterpret_f32, i64_reinterpret_f64,
     i64_extend_i32_s, i64_extend_i32_u,
     f32_convert_i32_u, f32_convert_i64_u,
@@ -488,6 +493,18 @@ function interpret(instance, frame, expr)
         elseif inst isa i32_sub
             b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
             push!(frame.value_stack, Runtime.i32_sub(a, b))
+        elseif inst isa i32_trunc_f32_s
+            a = pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.i32_trunc_f32_s(a)::Int32)
+        elseif inst isa i32_trunc_f32_u
+            a = pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.i32_trunc_f32_u(a)::Int32)
+        elseif inst isa i32_trunc_sat_f32_s
+            a = pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.i32_trunc_sat_f32_s(a)::Int32)
+        elseif inst isa i32_trunc_sat_f32_u
+            a = pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.i32_trunc_sat_f32_u(a)::Int32)
         elseif inst isa i32_wrap_i64
             a = pop!(frame.value_stack)::Int64
             push!(frame.value_stack, Runtime.i32_wrap_i64(a))
@@ -593,6 +610,15 @@ function interpret(instance, frame, expr)
         elseif inst isa i64_trunc_f64_s
             a = pop!(frame.value_stack)::Float64
             push!(frame.value_stack, Runtime.i64_trunc_f64_s(a))
+        elseif inst isa i64_trunc_f64_u
+            a = pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.i64_trunc_f64_u(a))
+        elseif inst isa i64_trunc_sat_f64_s
+            a = pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.i64_trunc_sat_f64_s(a))
+        elseif inst isa i64_trunc_sat_f64_u
+            a = pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.i64_trunc_sat_f64_u(a))
         elseif inst isa i64_xor
             b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
             push!(frame.value_stack, Runtime.i64_xor(a, b))
