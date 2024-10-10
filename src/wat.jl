@@ -115,10 +115,10 @@ function _printwasm(io::IO, mod::Module)
         _printwasm(ctx, global_.type.type)
         global_.type.mut && print(io, ')')
         if length(global_.init) > 1
-            println("(")
+            println(io, "(")
             _printwasm(ctx, global_.init)
             println()
-            print(INDENT_S ^ indent, ")")
+            print(io, INDENT_S ^ indent, ")")
         else
             print(io, " (")
             _printwasm(io, global_.init)

@@ -221,7 +221,7 @@ end
 
 function convert_val!(inst, from, to)
     if from == to
-        push!(inst, nop())
+        # push!(inst, nop())
     elseif from isa StructRef && to == jl_value_t
         push!(inst, ref_cast(jl_value_t))
     elseif from == jl_value_t && to == i32
@@ -686,12 +686,14 @@ function emit_codes(ctx, ir, rt, nargs)
                         array_ty = struct_idx!(ctx, jltype(inst.args[3]))
                         push!(exprs[bidx], struct_get(array_ty, 3))
                         emit_val!(exprs[bidx], inst.args[4])
-                        push!(
-                            exprs[bidx],
-                            idxtype == i32 ? nop() : i32_wrap_i64(),
-                            array_get(array_ty - 1),
-                            local_set(getlocal!(ssa)),
-                        )
+                        if idxtype != i32
+                            push!(
+                                exprs[bidx],
+                                i32_wrap_i64(),
+                                array_get(array_ty - 1),
+                                local_set(getlocal!(ssa)),
+                            )
+                        end
                     else
                         throw(CompilationError(types, "invalid arrayref for mode $(ctx.mode)"))
                     end

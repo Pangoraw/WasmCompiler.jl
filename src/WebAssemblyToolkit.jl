@@ -5,7 +5,6 @@ const WAT = @__MODULE__
 export @wat_str, WAT
 
 include("./utils.jl")
-include("./binaryen.jl")
 include("./instructions.jl")
 include("./wasm.jl")
 include("./compiler.jl")
@@ -118,10 +117,6 @@ macro code_wasm(exprs...)
             if $(esc(optimize)) !== false
                 lvl = !($(esc(optimize)) isa Int) ? 1 : $(esc(optimize))
                 module_ = WebAssemblyToolkit.optimize!(module_, lvl)
-            end
-
-            if $(esc(optimize)) === :binaryen
-                module_ = WebAssemblyToolkit.optimize(module_; debug=$debug)
             end
 
             Wat(module_, $(print_sexpr))
