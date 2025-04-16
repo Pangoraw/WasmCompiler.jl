@@ -479,6 +479,12 @@ function interpret(instance, frame, expr)
         elseif inst isa i32_sub
             b, a = pop!(frame.value_stack)::Int32, pop!(frame.value_stack)::Int32
             push!(frame.value_stack, Runtime.i32_sub(a, b))
+        elseif inst isa i32_trunc_f32_u
+            a = pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.i32_trunc_f32_u(a))
+        elseif inst isa i32_trunc_f32_s
+            a = pop!(frame.value_stack)::Float32
+            push!(frame.value_stack, Runtime.i32_trunc_f32_s(a))
         elseif inst isa i32_wrap_i64
             a = pop!(frame.value_stack)::Int64
             push!(frame.value_stack, Runtime.i32_wrap_i64(a))
@@ -578,6 +584,9 @@ function interpret(instance, frame, expr)
         elseif inst isa i64_sub
             b, a = pop!(frame.value_stack)::Int64, pop!(frame.value_stack)::Int64
             push!(frame.value_stack, Runtime.i64_sub(a, b))
+        elseif inst isa i64_trunc_f64_u
+            a = pop!(frame.value_stack)::Float64
+            push!(frame.value_stack, Runtime.i64_trunc_f64_u(a))
         elseif inst isa i64_trunc_f64_s
             a = pop!(frame.value_stack)::Float64
             push!(frame.value_stack, Runtime.i64_trunc_f64_s(a))
